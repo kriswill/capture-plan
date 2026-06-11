@@ -1009,3 +1009,17 @@ setVaultProperty(path, "tags", "tag1,tag2,tag3", "list", vault)
 const raw = readVaultProperty(path, "tags", vault)
 const tags = raw.split("\n").filter((l) => l.trim())
 ```
+
+### Non-`.md` Files (`.base`) Work With `create`/`read`/`delete`
+
+The file-operation commands are not limited to markdown. Verified against `.base` files (Obsidian Bases):
+
+```
+obsidian vault=V create path=Claude/Bases/foo.base content=... silent      # creates the .base file verbatim
+obsidian vault=V create path=Claude/Bases/foo.base content=... overwrite   # replaces it
+obsidian vault=V read   path=Claude/Bases/foo.base                          # returns content
+obsidian vault=V delete path=Claude/Bases/foo.base permanent                # deletes it
+obsidian vault=V files  folder=Claude/Bases                                 # lists it
+```
+
+The `create` command does not append `.md` when the path already has an extension. Used by `lib/bases.ts` to manage plugin-owned `.base` files. Note that `read` output passes through `runObsidian`, which trims whitespace — compare trimmed content when checking for drift.

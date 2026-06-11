@@ -12,7 +12,14 @@ import {
   setVaultProperty,
 } from "./obsidian.ts"
 import { formatEventLine, type SessionEvent } from "./session-events.ts"
-import { ensureMdExt, padCounter, shortSessionId, toSlug } from "./text.ts"
+import {
+  ensureMdExt,
+  normalizeModelId,
+  padCounter,
+  parseModelContextCap,
+  shortSessionId,
+  toSlug,
+} from "./text.ts"
 import type { SessionConfig } from "./types.ts"
 
 const COUNTER_PREFIX_RE = /^(\d{3,})-/
@@ -91,6 +98,37 @@ export interface UpsertSessionDocOpts {
   events?: SessionEvent[]
 }
 
+/** Metadata fields shared by all session-doc frontmatter builders. */
+interface SessionFmFields {
+  sessionId: string
+  project?: string
+  started?: string
+  model?: string
+  contextWindow?: number
+  ccVersion?: string
+  mode: string
+}
+
+/** Format the session-doc frontmatter header lines (type, id, project, started/date, normalized model + context_window, cc_version, mode). */
+function formatSessionFmLines(f: SessionFmFields): string[] {
+  const lines: string[] = []
+  lines.push("type: session")
+  lines.push(`session_id: "${f.sessionId}"`)
+  if (f.project) lines.push(`project: "${f.project}"`)
+  if (f.started) {
+    lines.push(`started: "${f.started}"`)
+    lines.push(`date: ${f.started.slice(0, 10)}`)
+  }
+  if (f.model) {
+    lines.push(`model: "${normalizeModelId(f.model)}"`)
+    const cap = f.contextWindow ?? parseModelContextCap(f.model)
+    if (cap) lines.push(`context_window: ${cap}`)
+  }
+  if (f.ccVersion) lines.push(`cc_version: "${f.ccVersion}"`)
+  lines.push(`mode: ${f.mode}`)
+  return lines
+}
+
 /** Parse a YAML list of wikilinks from session document frontmatter. */
 function parseWikilinks(fm: string, key: string): SessionLink[] {
   const section = fm.match(new RegExp(`^${key}:\\n((?:\\s+-\\s+.+\\n?)*)`, "m"))
@@ -155,13 +193,14 @@ export function createSessionDoc(opts: CreateSessionDocOpts): string | null {
   const existing = readVaultNote(docPath, opts.vault)
   if (existing) return null
 
-  const fmLines: string[] = []
-  fmLines.push(`session_id: "${opts.sessionId}"`)
-  if (opts.project) fmLines.push(`project: "${opts.project}"`)
-  fmLines.push(`started: "${opts.started}"`)
-  if (opts.model) fmLines.push(`model: "${opts.model}"`)
-  if (opts.ccVersion) fmLines.push(`cc_version: "${opts.ccVersion}"`)
-  fmLines.push(`mode: normal`)
+  const fmLines = formatSessionFmLines({
+    sessionId: opts.sessionId,
+    project: opts.project,
+    started: opts.started,
+    model: opts.model,
+    ccVersion: opts.ccVersion,
+    mode: "normal",
+  })
 
   const startEvent: SessionEvent = {
     ts: opts.started,
@@ -196,13 +235,15 @@ export function upsertSessionDoc(opts: UpsertSessionDocOpts): boolean {
   const mode = opts.mode ?? ex?.mode ?? "normal"
 
   // Build frontmatter
-  const fmLines: string[] = []
-  fmLines.push(`session_id: "${opts.sessionId}"`)
-  if (project) fmLines.push(`project: "${project}"`)
-  if (ex?.started) fmLines.push(`started: "${ex.started}"`)
-  if (ex?.model) fmLines.push(`model: "${ex.model}"`)
-  if (ex?.ccVersion) fmLines.push(`cc_version: "${ex.ccVersion}"`)
-  fmLines.push(`mode: ${mode}`)
+  const fmLines = formatSessionFmLines({
+    sessionId: opts.sessionId,
+    project,
+    started: ex?.started,
+    model: ex?.model,
+    contextWindow: ex?.contextWindow,
+    ccVersion: ex?.ccVersion,
+    mode,
+  })
 
   const linkSections = [
     formatLinksYaml("plans", plans),
@@ -239,6 +280,7 @@ function parseFrontmatterMeta(fm: string): {
   project?: string
   started?: string
   model?: string
+  contextWindow?: number
   ccVersion?: string
   mode?: string
 } {
@@ -246,10 +288,13 @@ function parseFrontmatterMeta(fm: string): {
     const m = fm.match(new RegExp(`^${key}:\\s*"?([^"\\n]+)"?`, "m"))
     return m ? m[1].trim() : undefined
   }
+  const rawContextWindow = get("context_window")
+  const contextWindow = rawContextWindow ? parseInt(rawContextWindow, 10) : Number.NaN
   return {
     project: get("project"),
     started: get("started"),
     model: get("model"),
+    contextWindow: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : undefined,
     ccVersion: get("cc_version"),
     mode: get("mode"),
   }
@@ -314,13 +359,15 @@ export function relocateSessionDoc(opts: RelocateSessionDocOpts): string | null 
   const eventLines = dedupeEventLines([...(target?.eventLines ?? []), ...old.eventLines])
 
   // Build merged content
-  const fmLines: string[] = []
-  fmLines.push(`session_id: "${sessionId}"`)
-  fmLines.push(`project: "${opts.newProject}"`)
-  if (started) fmLines.push(`started: "${started}"`)
-  if (model) fmLines.push(`model: "${model}"`)
-  if (ccVersion) fmLines.push(`cc_version: "${ccVersion}"`)
-  fmLines.push(`mode: ${mode}`)
+  const fmLines = formatSessionFmLines({
+    sessionId,
+    project: opts.newProject,
+    started,
+    model,
+    contextWindow: target?.contextWindow ?? old.contextWindow,
+    ccVersion,
+    mode,
+  })
 
   const linkSections = [
     formatLinksYaml("plans", plans),

@@ -203,8 +203,10 @@ describe("formatStatsYaml", () => {
 
   it("formats all stats fields including context", () => {
     const yaml = formatStatsYaml(baseStats)
-    expect(yaml).toContain("model: claude-opus-4-6 (200K)")
+    expect(yaml).toContain("model: claude-opus-4-6")
+    expect(yaml).toContain("context_window: 200000")
     expect(yaml).toContain('duration: "5m"')
+    expect(yaml).toContain("duration_s: 300")
     expect(yaml).toContain("tokens_in: 12500")
     expect(yaml).toContain("tokens_out: 3200")
     expect(yaml).toContain("context_pct:")
@@ -217,7 +219,8 @@ describe("formatStatsYaml", () => {
 
   it("uses explicit contextCap when provided", () => {
     const yaml = formatStatsYaml(baseStats, 1_000_000)
-    expect(yaml).toContain("model: claude-opus-4-6 (1M)")
+    expect(yaml).toContain("model: claude-opus-4-6")
+    expect(yaml).toContain("context_window: 1000000")
   })
 
   it("omits mcp_servers when empty", () => {
@@ -251,15 +254,17 @@ describe("formatModelYaml", () => {
     totalErrors: 0,
   }
 
-  it("returns model with context cap label and context_pct", () => {
+  it("returns normalized model with context_window and context_pct", () => {
     const yaml = formatModelYaml(stats)
-    expect(yaml).toContain("model: claude-opus-4-6 (200K)")
+    expect(yaml).toContain("model: claude-opus-4-6")
+    expect(yaml).toContain("context_window: 200000")
     expect(yaml).toContain("context_pct: 30") // (50000+10000)/200000 = 30%
   })
 
   it("uses explicit contextCap when provided", () => {
     const yaml = formatModelYaml(stats, 1_000_000)
-    expect(yaml).toContain("model: claude-opus-4-6 (1M)")
+    expect(yaml).toContain("model: claude-opus-4-6")
+    expect(yaml).toContain("context_window: 1000000")
     expect(yaml).toContain("context_pct: 6") // (50000+10000)/1000000 = 6%
   })
 

@@ -7,7 +7,16 @@ import { writeFileSync } from "node:fs"
 import { createSessionDoc } from "./lib/session-doc.ts"
 
 import { PLUGIN_ROOT } from "./lib/types.ts"
-import { contextHintPath, debugLog, detectCcVersion, getProjectName, loadConfig } from "./shared.ts"
+import {
+  BASES_VERSION,
+  contextHintPath,
+  debugLog,
+  detectCcVersion,
+  getProjectName,
+  loadConfig,
+  parseModelContextCap,
+  syncBases,
+} from "./shared.ts"
 
 const DEBUG_LOG = "/tmp/capture-plan-debug.log"
 
@@ -21,18 +30,8 @@ interface SessionStartPayload {
   [key: string]: unknown
 }
 
+export { parseModelContextCap } from "./lib/text.ts"
 export type { ContextHint } from "./lib/types.ts"
-
-/** Parse context window size from a model identifier like "claude-opus-4-6[1m]". */
-export function parseModelContextCap(model: string): number | undefined {
-  const match = model.match(/\[(\d+)([km])\]/i)
-  if (!match) return undefined
-  const num = Number(match[1])
-  const unit = match[2].toLowerCase()
-  if (unit === "m") return num * 1_000_000
-  if (unit === "k") return num * 1_000
-  return undefined
-}
 
 async function main(): Promise<void> {
   let sessionEnabled = false
@@ -100,6 +99,17 @@ async function main(): Promise<void> {
     const hintFile = contextHintPath(sessionId)
     writeFileSync(hintFile, JSON.stringify(hint))
     debugLog(`Context hint written: ${hintFile} cap=${contextCap ?? "auto"}\n`, DEBUG_LOG)
+
+    // Reconcile managed .base files with their canonical definitions (authoritative:
+    // manual edits are replaced). Once per session — downstream hooks skip via the hint.
+    const basesResult = syncBases(config, DEBUG_LOG)
+    if (basesResult.synced) {
+      hint.bases_synced = BASES_VERSION
+      writeFileSync(hintFile, JSON.stringify(hint))
+      if (basesResult.written.length > 0) {
+        debugLog(`Bases synced: ${basesResult.written.join(", ")}\n`, DEBUG_LOG)
+      }
+    }
 
     // Create session document in the vault if sessions are enabled
     if (sessionEnabled) {

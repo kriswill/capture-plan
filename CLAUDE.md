@@ -41,6 +41,14 @@ See `docs/obsidian-cli.md` for the full Obsidian CLI command reference, includin
 1. `capture-plan.ts` receives the ExitPlanMode payload via stdin JSON, extracts plan content, creates an Obsidian note at `<vault>/<plan.path>/<date_scheme_path>/<counter>-<slug>/plan.md`
 2. `capture-done.ts` receives the Stop payload via stdin JSON, reads saved session state, finds and parses the transcript, and writes `summary.md` in the same directory
 
+### Managed Obsidian Bases
+
+`lib/bases.ts` defines canonical `.base` files (database views over captured notes) and `syncBases()` reconciles them with the vault: files that differ from the canonical definition are overwritten (plugin is authoritative — manual edits are replaced). Synced once per session from the SessionStart hook (belt-and-suspenders re-check in capture-plan, gated via the `bases_synced` context-hint field). Configured via the `[bases]` table (`enabled`, `path`). When base definitions change, bump `BASES_VERSION`.
+
+### Frontmatter Conventions
+
+Every generated note carries Bases-friendly fields alongside display fields: `type` (doc discriminator: plan/summary/tools-stats/tools-log/agent/activity/spec/skill/session/journal), scalar `date` (YYYY-MM-DD), numeric `duration_s` next to the human `duration` string, and a bare `model` id with the context window split into numeric `context_window` (use `normalizeModelId`/`parseModelContextCap` from `lib/text.ts`).
+
 ### Date Directory Schemes
 
 The `date_scheme` setting controls how date segments are formatted in vault paths. Four named schemes are available: `calendar` (default), `compact`, `monthly`, `flat`. Each path (plan and journal) can be configured independently via TOML grouped tables.

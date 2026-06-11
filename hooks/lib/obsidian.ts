@@ -220,7 +220,8 @@ export function updateJournalFrontmatter(
 ): void {
   if (!journalPath) return
 
-  // date and day: idempotent set
+  // type, date, and day: idempotent set
+  setVaultProperty(journalPath, "type", "journal", "text", vault)
   setVaultProperty(journalPath, "date", props.date, "date", vault)
   setVaultProperty(journalPath, "day", props.day, "text", vault)
 

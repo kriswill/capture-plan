@@ -161,6 +161,13 @@ date_scheme = "calendar"   # calendar | compact | monthly | flat
 enabled = false
 path = "Claude/Sessions"
 prompt_max_chars = 1000
+
+# Obsidian Bases (database views over captured notes) — managed by the plugin.
+# The plugin keeps these .base files authoritative: manual edits are replaced
+# on the next session start. Set enabled = false to stop managing them.
+[bases]
+enabled = true
+path = "Claude/Bases"
 ```
 
 The `date_scheme` setting controls how date segments are formatted in vault paths. Four schemes are available:
@@ -174,7 +181,7 @@ The `date_scheme` setting controls how date segments are formatted in vault path
 
 Old flat keys (`plan_path`, `journal_path`) are still accepted for backward compatibility; the `[plan]`/`[journal]` tables take precedence.
 
-The `context_cap` setting controls the context window size shown in note frontmatter (e.g., `model: claude-opus-4-6 (1M)`). By default, the plugin assumes 200K and auto-detects 1M when a single turn exceeds 200K tokens. Set this explicitly if you're on Claude Max or Enterprise and want it to always show 1M. Token usage (input, output, cache), peak context %, duration, model, and subagent count are all computed from the transcript and recorded in both the note frontmatter and the `tools-stats.md` companion note.
+The `context_cap` setting controls the context window size recorded in note frontmatter (`context_window`). By default, the plugin assumes 200K and auto-detects 1M when a single turn exceeds 200K tokens. Set this explicitly if you're on Claude Max or Enterprise and want it to always show 1M. Token usage (input, output, cache), peak context %, duration, model, and subagent count are all computed from the transcript and recorded in both the note frontmatter and the `tools-stats.md` companion note.
 
 ## How it works
 
@@ -209,17 +216,21 @@ Each captured session produces a directory of related notes:
 
 ### Note frontmatter
 
-All notes include YAML frontmatter with Obsidian-compatible wikilinks. Key fields:
+All notes include YAML frontmatter with Obsidian-compatible wikilinks, designed to be queryable from Obsidian Bases. Key fields:
 
 | Field | Example | Notes |
 |---|---|---|
+| `type` | `plan`, `summary`, `tools-stats`, `tools-log`, `agent`, `activity`, `spec`, `skill`, `session`, `journal` | Doc-type discriminator |
+| `date` | `2026-04-04` | Scalar date for sorting/filtering in Bases |
 | `created` | `"[[Journal/2026/04-April/04-Saturday\|2026-04-04 2:30 PM]]"` | Wikilink to daily journal |
 | `project` | `capture-plan` | Git repo name (auto-detected from cwd) |
 | `tags` | `- refactor` | AI-generated from plan/summary content |
 | `session` | `"[[Sessions/abc123]]"` | Session ID link |
-| `model` | `claude-opus-4-6 (1M)` | Model with context window label |
+| `model` | `claude-opus-4-6` | Bare model id (context window split out) |
+| `context_window` | `1000000` | Context window size in tokens |
 | `context_pct` | `42` | Peak context window usage % |
-| `duration` | `"12m 34s"` | Session duration (summary, tools-stats) |
+| `duration` | `"12m 34s"` | Human-readable session duration |
+| `duration_s` | `754` | Numeric duration in seconds (sortable) |
 | `cc_version` | `"1.0.28"` | Claude Code version |
 | `source` | `superpowers` or `skill` | Session type (absent for plan-mode) |
 | `spec_file` | `"/path/to/spec.md"` | Source spec path (superpowers only) |
@@ -229,6 +240,20 @@ All notes include YAML frontmatter with Obsidian-compatible wikilinks. Key field
 | `subagents` | `3` | Number of subagents dispatched |
 | `tools_used` | `87` | Total tool calls |
 | `total_errors` | `2` | Total tool errors |
+
+### Obsidian Bases
+
+The plugin maintains a set of [Obsidian Bases](https://help.obsidian.md/bases) — database-style table views over the captured notes — under `Claude/Bases/` (configurable via `[bases] path`):
+
+| Base | Rows | Views |
+|---|---|---|
+| `claude-runs.base` | One per executed plan (`tools-stats.md`) | Recent runs, By project, Heaviest runs (by total tokens), High context pressure (≥20%), Runs with errors |
+| `claude-plans.base` | One per captured plan | All plans, By project, Superpowers |
+| `claude-agents.base` | One per subagent dispatch | Recent dispatches, By agent type, By model |
+| `claude-sessions.base` | One per session document | Recent sessions, By project |
+| `claude-journal.base` | One per daily journal note | Daily journal |
+
+Management is **authoritative**: at session start the plugin compares each `.base` file against its canonical definition and replaces it if it differs, so manual edits don't survive. To keep a customized view, copy the base under a different name (anything not prefixed with `claude-` in the bases folder is left alone), or set `[bases] enabled = false` to stop management entirely. e2e-test artifacts are filtered out of all plan-tree views.
 
 ### Daily journal
 

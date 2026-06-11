@@ -8,16 +8,16 @@ import type {
   TurnLogEntry,
 } from "../transcript.ts"
 import { resolveContextCap } from "./config.ts"
-import { formatDuration } from "./dates.ts"
+import { durationSeconds, formatDuration } from "./dates.ts"
 import {
   computeContextPct,
-  contextCapLabel,
   escapeTableCell,
   extractTitle,
   formatCcVersionYaml,
   formatNumber,
   isCodeLike,
   langFromPath,
+  normalizeModelId,
   toSlug,
 } from "./text.ts"
 import type { AgentFileEntry, ToolsLogResult } from "./types.ts"
@@ -26,9 +26,10 @@ import type { AgentFileEntry, ToolsLogResult } from "./types.ts"
 export function formatStatsYaml(stats: TranscriptStats, contextCap?: number): string {
   const lines: string[] = []
   const cap = contextCap ?? resolveContextCap(stats.peakTurnContext)
-  const capSuffix = ` (${contextCapLabel(cap)})`
-  lines.push(`model: ${stats.model}${capSuffix}`)
+  lines.push(`model: ${normalizeModelId(stats.model)}`)
+  lines.push(`context_window: ${cap}`)
   lines.push(`duration: "${formatDuration(stats.durationMs)}"`)
+  lines.push(`duration_s: ${durationSeconds(stats.durationMs)}`)
   lines.push(`tokens_in: ${stats.tokens.input}`)
   lines.push(`tokens_out: ${stats.tokens.output}`)
   lines.push(`context_pct: ${computeContextPct(stats.tokens, cap)}`)
@@ -44,13 +45,12 @@ export function formatStatsYaml(stats: TranscriptStats, contextCap?: number): st
   return lines.join("\n")
 }
 
-/** Render model name and context percentage as YAML frontmatter lines, or empty string if no stats. */
+/** Render model name, context window, and context percentage as YAML frontmatter lines, or empty string if no stats. */
 export function formatModelYaml(stats: TranscriptStats | null, contextCap?: number): string {
   if (!stats?.model) return ""
   const cap = contextCap ?? resolveContextCap(stats.peakTurnContext)
-  const capSuffix = ` (${contextCapLabel(cap)})`
   const pct = computeContextPct(stats.tokens, cap)
-  return `\nmodel: ${stats.model}${capSuffix}\ncontext_pct: ${pct}`
+  return `\nmodel: ${normalizeModelId(stats.model)}\ncontext_window: ${cap}\ncontext_pct: ${pct}`
 }
 
 /** Render tool usage records as a markdown table with name, call count, and error count columns. */
@@ -183,6 +183,8 @@ export function formatToolsNoteContent(opts: {
   const ccVersionYaml = formatCcVersionYaml(opts.ccVersion)
 
   return `---
+type: tools-stats
+date: ${datetime.slice(0, 10)}
 created: "[[${journalPath}|${datetime}]]"
 plan: "[[${planDir}/plan|${planTitle.replace(/"/g, '\\"')}]]"${project ? `\nproject: ${project}` : ""}${ccVersionYaml}
 ${statsYaml}
@@ -461,17 +463,21 @@ export function formatToolsLogContent(opts: {
 
   // Frontmatter
   const fmLines: string[] = []
+  fmLines.push(`type: tools-log`)
+  fmLines.push(`date: ${datetime.slice(0, 10)}`)
   fmLines.push(`created: "[[${journalPath}|${datetime}]]"`)
   fmLines.push(`plan: "[[${planDir}/plan|${planTitle.replace(/"/g, '\\"')}]]"`)
   if (project) fmLines.push(`project: ${project}`)
   if (opts.ccVersion) fmLines.push(`cc_version: "${opts.ccVersion}"`)
-  if (opts.model) fmLines.push(`model: ${opts.model}`)
+  if (opts.model) fmLines.push(`model: ${normalizeModelId(opts.model)}`)
+  if (opts.contextCap) fmLines.push(`context_window: ${opts.contextCap}`)
   fmLines.push(`total_tool_calls: ${totalCalls}`)
   fmLines.push(`total_errors: ${totalErrors}`)
   fmLines.push(`total_turns: ${totalTurns}`)
   if (planLog) fmLines.push(`planning_calls: ${planLog.totalToolCalls}`)
   if (execLog) fmLines.push(`execution_calls: ${execLog.totalToolCalls}`)
   fmLines.push(`duration: "${formatDuration(totalDurationMs)}"`)
+  fmLines.push(`duration_s: ${durationSeconds(totalDurationMs)}`)
   fmLines.push(`tokens_in: ${totalTokensIn}`)
   fmLines.push(`tokens_out: ${totalTokensOut}`)
 
@@ -535,6 +541,8 @@ export function formatToolsLogContent(opts: {
 
           // Build agent file frontmatter
           const afm: string[] = []
+          afm.push(`type: agent`)
+          afm.push(`date: ${datetime.slice(0, 10)}`)
           afm.push(`created: "[[${journalPath}|${datetime}]]"`)
           afm.push(`plan: "[[${planDir}/plan|${planTitle.replace(/"/g, '\\"')}]]"`)
           afm.push(
@@ -548,13 +556,14 @@ export function formatToolsLogContent(opts: {
             typeof tool.input.model === "string" && tool.input.model
               ? tool.input.model
               : (opts.model ?? "")
-          if (agentModel) afm.push(`model: ${agentModel}`)
+          if (agentModel) afm.push(`model: ${normalizeModelId(agentModel)}`)
           if (tool.blockId) {
             const sc = aggregateSidechainStats(allLogTurns, tool.blockId)
             if (sc.turnCount > 0) {
               afm.push(`tokens_in: ${sc.tokensIn}`)
               afm.push(`tokens_out: ${sc.tokensOut}`)
               afm.push(`duration: "${formatTurnDuration(sc.durationMs)}"`)
+              afm.push(`duration_s: ${durationSeconds(sc.durationMs)}`)
               afm.push(`tool_calls: ${sc.toolCalls}`)
               afm.push(`sidechain_turns: ${sc.turnCount}`)
             }

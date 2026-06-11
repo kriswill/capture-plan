@@ -130,7 +130,8 @@ describe("formatToolsNoteContent", () => {
       execStats,
       contextCap: 1_000_000,
     })
-    expect(content).toContain("model: claude-opus-4-6 (1M)")
+    expect(content).toContain("model: claude-opus-4-6")
+    expect(content).toContain("context_window: 1000000")
   })
 
   it("includes cc_version in frontmatter when provided", () => {
