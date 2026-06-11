@@ -43,7 +43,9 @@ See `docs/obsidian-cli.md` for the full Obsidian CLI command reference, includin
 
 ### Managed Obsidian Bases
 
-`lib/bases.ts` defines canonical `.base` files (database views over captured notes) and `syncBases()` reconciles them with the vault: files that differ from the canonical definition are overwritten (plugin is authoritative — manual edits are replaced). Synced once per session from the SessionStart hook (belt-and-suspenders re-check in capture-plan, gated via the `bases_synced` context-hint field). Configured via the `[bases]` table (`enabled`, `path`). When base definitions change, bump `BASES_VERSION`.
+`lib/bases.ts` defines canonical `.base` files (database views over captured notes) and `syncBases()` reconciles them with the vault: files that differ from the canonical definition are overwritten (plugin is authoritative — manual edits are replaced). Synced once per session from the SessionStart hook (belt-and-suspenders re-check in capture-plan, gated via the `bases_synced` context-hint field). Configured via the `[bases]` table (`enabled`, `path`). When base definitions change, bump `BASES_VERSION`. Note: Obsidian silently ignores a view's sort when the sort property is not among the view's displayed columns.
+
+When syncBases creates **all** bases net-new (first install), the hooks spawn `backfill-frontmatter.ts` detached to upgrade legacy notes to the current frontmatter standard. Pure upgrade logic lives in `lib/backfill.ts`; it derives fields only from the note's own frontmatter or vault path (never `~/.claude` session data) and preserves note bodies byte-for-byte.
 
 ### Frontmatter Conventions
 

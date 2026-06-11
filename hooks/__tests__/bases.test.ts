@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test"
-import { type BasesIo, buildBaseDefinitions, syncBases } from "../lib/bases.ts"
+import {
+  type BasesIo,
+  buildBaseDefinitions,
+  shouldRunInitialBackfill,
+  syncBases,
+} from "../lib/bases.ts"
 import { DEFAULT_CONFIG } from "../lib/config.ts"
 import { durationSeconds } from "../lib/dates.ts"
 import { normalizeModelId, parseModelContextCap } from "../lib/text.ts"
@@ -55,6 +60,7 @@ describe("buildBaseDefinitions", () => {
     for (const def of planTree) {
       expect(def.content).toContain('file.path.contains("e2e-test")')
       expect(def.content).toContain('file.path.contains("test-project-")')
+      expect(def.content).toContain('note.project == "test-project-1"')
     }
   })
 
@@ -89,12 +95,22 @@ function memoryIo(initial: Record<string, string> = {}): BasesIo & {
 }
 
 describe("syncBases", () => {
-  it("creates all missing base files", () => {
+  it("creates all missing base files and reports them as net-new", () => {
     const io = memoryIo()
     const result = syncBases(baseConfig, undefined, io)
     expect(result.synced).toBe(true)
     expect(result.written.length).toBe(5)
+    expect(result.created.length).toBe(5)
     expect(Object.keys(io.files).length).toBe(5)
+  })
+
+  it("reports replaced (drifted) files as written but not created", () => {
+    const io = memoryIo()
+    syncBases(baseConfig, undefined, io)
+    io.files["Claude/Bases/claude-runs.base"] = "tweaked"
+    const result = syncBases(baseConfig, undefined, io)
+    expect(result.written).toEqual(["Claude/Bases/claude-runs.base"])
+    expect(result.created).toEqual([])
   })
 
   it("is idempotent — a second sync writes nothing", () => {
@@ -147,6 +163,31 @@ describe("syncBases", () => {
     expect(result.synced).toBe(true)
     expect(result.written.length).toBe(4)
     expect(io.files["Claude/Bases/claude-runs.base"]).toBeUndefined()
+  })
+})
+
+describe("shouldRunInitialBackfill", () => {
+  it("triggers only when every managed base was created net-new", () => {
+    const io = memoryIo()
+    const firstRun = syncBases(baseConfig, undefined, io)
+    expect(shouldRunInitialBackfill(firstRun, baseConfig)).toBe(true)
+  })
+
+  it("does not trigger when only some bases were recreated", () => {
+    const io = memoryIo()
+    syncBases(baseConfig, undefined, io)
+    delete io.files["Claude/Bases/claude-runs.base"]
+    const partial = syncBases(baseConfig, undefined, io)
+    expect(partial.created).toEqual(["Claude/Bases/claude-runs.base"])
+    expect(shouldRunInitialBackfill(partial, baseConfig)).toBe(false)
+  })
+
+  it("does not trigger on a no-op or disabled sync", () => {
+    const io = memoryIo()
+    syncBases(baseConfig, undefined, io)
+    expect(shouldRunInitialBackfill(syncBases(baseConfig, undefined, io), baseConfig)).toBe(false)
+    const disabled: Config = { ...baseConfig, bases: { enabled: false, path: "Claude/Bases" } }
+    expect(shouldRunInitialBackfill(syncBases(disabled, undefined, io), disabled)).toBe(false)
   })
 })
 

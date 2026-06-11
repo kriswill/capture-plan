@@ -4,9 +4,10 @@
 // is compared against the canonical definition and replaced when it differs,
 // discarding any manual adjustments. Users opt out via `[bases] enabled = false`.
 
+import { join } from "node:path"
 import { createVaultNote, runObsidian } from "./obsidian.ts"
 import { debugLog } from "./text.ts"
-import type { Config } from "./types.ts"
+import { type Config, PLUGIN_ROOT } from "./types.ts"
 
 /** Version of the managed base definitions. Bump when definitions change so
  *  per-session hint gating re-syncs after a plugin update. */
@@ -29,10 +30,12 @@ export interface BaseDefinition {
   content: string
 }
 
-/** Filter block excluding e2e-test artifacts from plan-tree bases. */
+/** Filter block excluding e2e-test artifacts from plan-tree bases. Matches by
+ *  path fragment and by project (test runs land under normal date paths). */
 const E2E_EXCLUDE = `    - not:
         - file.path.contains("e2e-test")
-        - file.path.contains("test-project-")`
+        - file.path.contains("test-project-")
+        - note.project == "test-project-1"`
 
 /** Build the runs dashboard base: one row per executed plan (tools-stats notes).
  *  Views that sort by file.path also display it — Obsidian silently ignores a
@@ -423,6 +426,8 @@ export interface SyncBasesResult {
   synced: boolean
   /** Vault paths of .base files that were created or replaced. */
   written: string[]
+  /** Subset of `written` that did not exist before this sync (net-new). */
+  created: string[]
 }
 
 /** Reconcile the vault's managed .base files with their canonical definitions.
@@ -435,20 +440,43 @@ export function syncBases(
   io: BasesIo = defaultIo,
 ): SyncBasesResult {
   const written: string[] = []
-  if (!config.bases.enabled) return { synced: false, written }
+  const created: string[] = []
+  if (!config.bases.enabled) return { synced: false, written, created }
   try {
     for (const def of buildBaseDefinitions(config)) {
       const existing = io.read(def.path, config.vault)
       if (existing !== null && existing.trim() === def.content.trim()) continue
       if (io.write(def.path, def.content, config.vault)) {
         written.push(def.path)
+        if (existing === null) created.push(def.path)
       } else if (debugLogPath) {
         debugLog(`syncBases: failed to write ${def.path}\n`, debugLogPath)
       }
     }
-    return { synced: true, written }
+    return { synced: true, written, created }
   } catch (err) {
     if (debugLogPath) debugLog(`syncBases error: ${err}\n`, debugLogPath)
-    return { synced: false, written }
+    return { synced: false, written, created }
+  }
+}
+
+/** True when this sync created every managed base net-new — the first-install
+ *  signal that triggers the one-time frontmatter backfill. Re-creating a
+ *  single manually-deleted base does not qualify. */
+export function shouldRunInitialBackfill(result: SyncBasesResult, config: Config): boolean {
+  return result.synced && result.created.length === buildBaseDefinitions(config).length
+}
+
+/** Spawn the frontmatter backfill script as a detached background process so
+ *  hook timeouts are never at risk. Never throws. */
+export function startBackfillProcess(cwd?: string, debugLogPath?: string): void {
+  try {
+    const script = join(PLUGIN_ROOT, "hooks", "backfill-frontmatter.ts")
+    const args = ["bun", script, "--quiet", ...(cwd ? ["--cwd", cwd] : [])]
+    const proc = Bun.spawn(args, { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
+    proc.unref()
+    if (debugLogPath) debugLog(`backfill-frontmatter spawned (pid ${proc.pid})\n`, debugLogPath)
+  } catch (err) {
+    if (debugLogPath) debugLog(`failed to spawn backfill: ${err}\n`, debugLogPath)
   }
 }

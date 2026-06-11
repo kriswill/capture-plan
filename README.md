@@ -255,6 +255,14 @@ The plugin maintains a set of [Obsidian Bases](https://help.obsidian.md/bases) �
 
 Management is **authoritative**: at session start the plugin compares each `.base` file against its canonical definition and replaces it if it differs, so manual edits don't survive. To keep a customized view, copy the base under a different name (anything not prefixed with `claude-` in the bases folder is left alone), or set `[bases] enabled = false` to stop management entirely. e2e-test artifacts are filtered out of all plan-tree views.
 
+#### Frontmatter backfill
+
+The first time the managed bases are created (all of them net-new — a fresh install), the plugin spawns a detached background backfill that upgrades existing notes to the current frontmatter standard, so historical captures appear in the bases immediately. The backfill derives everything from data already in the vault — the note's own frontmatter (`created` wikilink, `started`, `duration`, legacy `model` suffix) or its path — and never reads Claude Code session files, which may no longer exist. It is idempotent (conformant notes cost zero writes), runs a CPU-scaled concurrent worker pool, isolates per-file failures, and falls back to per-property updates if a whole-file write fails. It can also be run manually:
+
+```sh
+bun hooks/backfill-frontmatter.ts [--dry-run] [--limit N] [--concurrency N] [--cwd PATH] [--quiet]
+```
+
 ### Daily journal
 
 Journal entries are grouped by plan title as Obsidian callouts. Each callout contains timestamped revisions with the note type (plan, done, activity), model label, and AI summary:

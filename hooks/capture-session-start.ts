@@ -15,6 +15,8 @@ import {
   getProjectName,
   loadConfig,
   parseModelContextCap,
+  shouldRunInitialBackfill,
+  startBackfillProcess,
   syncBases,
 } from "./shared.ts"
 
@@ -108,6 +110,11 @@ async function main(): Promise<void> {
       writeFileSync(hintFile, JSON.stringify(hint))
       if (basesResult.written.length > 0) {
         debugLog(`Bases synced: ${basesResult.written.join(", ")}\n`, DEBUG_LOG)
+      }
+      // First install (all bases net-new): upgrade legacy notes to the current
+      // frontmatter standard in a detached background process.
+      if (shouldRunInitialBackfill(basesResult, config)) {
+        startBackfillProcess(cwd, DEBUG_LOG)
       }
     }
 
