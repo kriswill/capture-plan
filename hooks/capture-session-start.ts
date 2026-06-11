@@ -13,10 +13,9 @@ import {
   debugLog,
   detectCcVersion,
   getProjectName,
+  isFirstBasesInstall,
   loadConfig,
   parseModelContextCap,
-  shouldRunInitialBackfill,
-  startBackfillProcess,
   syncBases,
 } from "./shared.ts"
 
@@ -37,6 +36,7 @@ export type { ContextHint } from "./lib/types.ts"
 
 async function main(): Promise<void> {
   let sessionEnabled = false
+  let suggestBackfill = false
   try {
     const input = await Bun.stdin.text()
     const envRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "unset"
@@ -111,11 +111,9 @@ async function main(): Promise<void> {
       if (basesResult.written.length > 0) {
         debugLog(`Bases synced: ${basesResult.written.join(", ")}\n`, DEBUG_LOG)
       }
-      // First install (all bases net-new): upgrade legacy notes to the current
-      // frontmatter standard in a detached background process.
-      if (shouldRunInitialBackfill(basesResult, config)) {
-        startBackfillProcess(cwd, DEBUG_LOG)
-      }
+      // First install (all bases net-new): suggest the opt-in backfill commands
+      // via the SessionStart context message instead of running anything.
+      suggestBackfill = isFirstBasesInstall(basesResult, config)
     }
 
     // Create session document in the vault if sessions are enabled
@@ -152,11 +150,14 @@ async function main(): Promise<void> {
     const detail = sessionEnabled
       ? "Session capture is ON — events will be logged to the vault."
       : "Session capture is OFF."
+    const backfillNote = suggestBackfill
+      ? " Managed Obsidian bases were created for the first time. Existing notes may predate the current frontmatter standard — suggest the user run /backfill-frontmatter-estimation to scope an upgrade, then /backfill-frontmatter to apply it."
+      : ""
     console.log(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "SessionStart",
-          additionalContext: detail,
+          additionalContext: detail + backfillNote,
         },
       }),
     )

@@ -1,30 +1,24 @@
 #!/usr/bin/env bun
-// backfill-frontmatter.ts — One-time upgrade of legacy vault notes to the
-// current frontmatter standard (type, date, duration_s, normalized model +
-// context_window).
-//
-// Spawned automatically (detached) when syncBases creates the managed .base
-// files net-new; also runnable manually:
+// backfill-frontmatter.ts — Upgrade legacy vault notes to the current
+// frontmatter standard (type, date, duration_s, normalized model +
+// context_window). Invoked via the /backfill-frontmatter skill, or manually:
 //
 //   bun hooks/backfill-frontmatter.ts [--dry-run] [--limit N] [--concurrency N] [--cwd PATH] [--quiet]
 //
 // Sources only the note's own frontmatter and its vault path — never Claude
 // Code session data, which may no longer exist. Reads are direct fs reads
 // (safe); all writes go through the Obsidian CLI per the vault mutation rule.
-// Idempotent: already-conformant notes cost zero writes, so re-runs are cheap.
+//
+// Interruptible and resumable: SIGINT/SIGTERM stop the worker pool after
+// in-flight writes finish, and a re-run skips notes that are already at the
+// current standard, picking up exactly where the previous run left off.
 
-import { readdirSync, readFileSync } from "node:fs"
 import { cpus } from "node:os"
-import { join } from "node:path"
-import {
-  type BackfillDocType,
-  classifyDoc,
-  type NoteUpgrade,
-  upgradeNoteContent,
-} from "./lib/backfill.ts"
-import { debugLog, getVaultPath, loadConfig, runObsidianAsync } from "./shared.ts"
+import { type PendingUpgrade, scanVault } from "./lib/backfill-scan.ts"
+import { debugLog, formatDuration, getVaultPath, loadConfig, runObsidianAsync } from "./shared.ts"
 
 const DEBUG_LOG = "/tmp/capture-backfill-debug.log"
+const PROGRESS_EVERY = 100
 
 interface CliOptions {
   dryRun: boolean
@@ -53,38 +47,19 @@ function parseArgs(argv: string[]): CliOptions {
   return opts
 }
 
-/** Recursively collect vault-relative .md paths under a vault folder. */
-function collectMarkdownFiles(vaultPath: string, folderRel: string): string[] {
-  const results: string[] = []
-  const walk = (rel: string): void => {
-    let entries: import("node:fs").Dirent[]
-    try {
-      entries = readdirSync(join(vaultPath, rel), { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      const childRel = `${rel}/${entry.name}`
-      if (entry.isDirectory()) walk(childRel)
-      else if (entry.name.endsWith(".md")) results.push(childRel)
-    }
-  }
-  walk(folderRel)
-  return results
-}
-
-/** Run an async worker over items with bounded concurrency. Worker errors are
- *  the worker's responsibility — the pool itself never rejects early. */
+/** Run an async worker over items with bounded concurrency. Stops picking new
+ *  items once shouldStop() returns true; in-flight items finish cleanly. */
 async function runPool<T>(
   items: T[],
   concurrency: number,
   worker: (item: T, index: number) => Promise<void>,
+  shouldStop: () => boolean,
 ): Promise<void> {
   let next = 0
   const runners = Array.from(
     { length: Math.max(1, Math.min(concurrency, items.length)) },
     async () => {
-      while (true) {
+      while (!shouldStop()) {
         const i = next++
         if (i >= items.length) return
         await worker(items[i], i)
@@ -92,12 +67,6 @@ async function runPool<T>(
     },
   )
   await Promise.all(runners)
-}
-
-interface PendingUpgrade {
-  relPath: string
-  docType: BackfillDocType
-  upgrade: NoteUpgrade
 }
 
 /** Apply one upgrade: whole-file frontmatter rewrite via `create overwrite`,
@@ -140,6 +109,16 @@ async function main(): Promise<void> {
   const startedAt = Date.now()
   debugLog(`=== BACKFILL ${new Date().toISOString()} ${JSON.stringify(opts)} ===\n`, DEBUG_LOG)
 
+  let interrupted = false
+  const onSignal = (): void => {
+    interrupted = true
+    log(
+      "backfill: interrupt received — finishing in-flight writes, then stopping (re-run to resume)",
+    )
+  }
+  process.on("SIGINT", onSignal)
+  process.on("SIGTERM", onSignal)
+
   const config = await loadConfig(opts.cwd)
   const vaultPath = getVaultPath(config.vault)
   if (!vaultPath) {
@@ -147,51 +126,13 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const paths = {
-    planPath: config.plan.path,
-    journalPath: config.journal.path,
-    sessionPath: config.session.path,
-  }
-  const roots = [...new Set([paths.planPath, paths.journalPath, paths.sessionPath])]
-
-  // Scan: direct fs reads, no vault mutation
-  const stats = { scanned: 0, unclassified: 0, current: 0 }
-  const queue: PendingUpgrade[] = []
-  const changeCounts = new Map<string, number>()
-  for (const root of roots) {
-    for (const relPath of collectMarkdownFiles(vaultPath, root)) {
-      stats.scanned++
-      const docType = classifyDoc(relPath, paths)
-      if (!docType) {
-        stats.unclassified++
-        continue
-      }
-      let content: string
-      try {
-        content = readFileSync(join(vaultPath, relPath), "utf8")
-      } catch {
-        stats.unclassified++
-        continue
-      }
-      const upgrade = upgradeNoteContent(relPath, content, docType)
-      if (!upgrade) {
-        stats.current++
-        continue
-      }
-      for (const change of upgrade.changes) {
-        changeCounts.set(change.key, (changeCounts.get(change.key) ?? 0) + 1)
-      }
-      queue.push({ relPath, docType, upgrade })
-      if (queue.length >= opts.limit) break
-    }
-    if (queue.length >= opts.limit) break
-  }
-
+  const scan = scanVault(config, vaultPath, opts.limit)
+  const queue = scan.queue
   const changeSummary =
-    [...changeCounts.entries()].map(([k, n]) => `${k}=${n}`).join(" ") || "(none)"
+    [...scan.changeCounts.entries()].map(([k, n]) => `${k}=${n}`).join(" ") || "(none)"
   log(
-    `backfill: scanned ${stats.scanned} files — ${queue.length} need upgrades, ` +
-      `${stats.current} already current, ${stats.unclassified} skipped | changes: ${changeSummary}`,
+    `backfill: scanned ${scan.scanned} files — ${queue.length} need upgrades, ` +
+      `${scan.current} already current, ${scan.skipped} skipped | changes: ${changeSummary}`,
   )
 
   if (opts.dryRun) {
@@ -201,35 +142,56 @@ async function main(): Promise<void> {
       )
     }
     if (queue.length > 20) log(`  ... and ${queue.length - 20} more`)
-    return
+    process.exit(0)
+  }
+
+  if (queue.length === 0) {
+    log("backfill: nothing to do — vault is already at the current frontmatter standard")
+    process.exit(0)
   }
 
   // Apply with a bounded worker pool
   const outcome = { written: 0, fallback: 0, failed: [] as string[] }
   let done = 0
-  await runPool(queue, opts.concurrency, async (pending) => {
-    try {
-      const result = await applyUpgrade(pending, config.vault)
-      if (result === "written") outcome.written++
-      else if (result === "fallback") outcome.fallback++
-      else outcome.failed.push(pending.relPath)
-    } catch (err) {
-      outcome.failed.push(pending.relPath)
-      debugLog(`backfill error on ${pending.relPath}: ${err}\n`, DEBUG_LOG)
-    }
-    done++
-    if (done % 250 === 0) log(`backfill: ${done}/${queue.length} applied...`)
-  })
+  const applyStart = Date.now()
+  await runPool(
+    queue,
+    opts.concurrency,
+    async (pending) => {
+      try {
+        const result = await applyUpgrade(pending, config.vault)
+        if (result === "written") outcome.written++
+        else if (result === "fallback") outcome.fallback++
+        else outcome.failed.push(pending.relPath)
+      } catch (err) {
+        outcome.failed.push(pending.relPath)
+        debugLog(`backfill error on ${pending.relPath}: ${err}\n`, DEBUG_LOG)
+      }
+      done++
+      if (done % PROGRESS_EVERY === 0) {
+        const rate = done / Math.max((Date.now() - applyStart) / 1000, 0.001)
+        const etaMs = ((queue.length - done) / Math.max(rate, 0.1)) * 1000
+        log(
+          `backfill: ${done}/${queue.length} (${rate.toFixed(0)}/s, ~${formatDuration(etaMs)} remaining)`,
+        )
+      }
+    },
+    () => interrupted,
+  )
 
-  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+  const elapsed = formatDuration(Date.now() - startedAt)
+  const verb = interrupted ? `interrupted after ${done} of ${queue.length}` : "done"
   log(
-    `backfill: done in ${elapsed}s — ${outcome.written} rewritten, ` +
+    `backfill: ${verb} in ${elapsed} — ${outcome.written} rewritten, ` +
       `${outcome.fallback} via property fallback, ${outcome.failed.length} failed`,
   )
+  if (interrupted) {
+    log("backfill: safe to resume — re-running skips notes that are already upgraded")
+  }
   for (const failed of outcome.failed.slice(0, 20)) log(`  failed: ${failed}`)
   // Explicit exit — lingering subprocess stream handles must not keep the
-  // (possibly detached) process alive after the work is done.
-  process.exit(outcome.failed.length > 0 ? 1 : 0)
+  // process alive after the work is done.
+  process.exit(interrupted ? 130 : outcome.failed.length > 0 ? 1 : 0)
 }
 
 main()

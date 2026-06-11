@@ -257,10 +257,13 @@ Management is **authoritative**: at session start the plugin compares each `.bas
 
 #### Frontmatter backfill
 
-The first time the managed bases are created (all of them net-new — a fresh install), the plugin spawns a detached background backfill that upgrades existing notes to the current frontmatter standard, so historical captures appear in the bases immediately. The backfill derives everything from data already in the vault — the note's own frontmatter (`created` wikilink, `started`, `duration`, legacy `model` suffix) or its path — and never reads Claude Code session files, which may no longer exist. It is idempotent (conformant notes cost zero writes), runs a CPU-scaled concurrent worker pool, isolates per-file failures, and falls back to per-property updates if a whole-file write fails. It can also be run manually:
+Notes captured before the current frontmatter standard can be upgraded with the opt-in `/backfill-frontmatter` command (the first time the managed bases are created, the SessionStart hook suggests it). Use `/backfill-frontmatter-estimation` first for a read-only report: hardware specs (CPU, cores, memory), the size of the plugin-generated vault content, the pending workload broken down by field and doc type, and a runtime estimate calibrated against live Obsidian CLI latency on your machine.
+
+The backfill derives everything from data already in the vault — the note's own frontmatter (`created` wikilink, `started`, `duration`, legacy `model` suffix) or its path — and never reads Claude Code session files, which may no longer exist. Note bodies are preserved byte-for-byte. It reports progress with rate and ETA every 100 notes, is **interruptible** (SIGINT/SIGTERM finish in-flight writes and stop), and **resumable** — re-running skips every note already at the standard. It runs a CPU-scaled concurrent worker pool, isolates per-file failures, kills hung CLI calls after 15s, and falls back to per-property updates if a whole-file write fails. Manual invocation:
 
 ```sh
 bun hooks/backfill-frontmatter.ts [--dry-run] [--limit N] [--concurrency N] [--cwd PATH] [--quiet]
+bun hooks/backfill-estimate.ts [--cwd PATH]
 ```
 
 ### Daily journal
@@ -278,6 +281,14 @@ Journal frontmatter tracks the date, day name, projects active that day, and agg
 ## Skills
 
 These slash commands are available to all users when the plugin is installed.
+
+### `/backfill-frontmatter-estimation`
+
+Read-only estimate of what `/backfill-frontmatter` would do: hardware specs (CPU model, cores, memory), worker concurrency, the size of the plugin-generated vault content, pending upgrades broken down by frontmatter field and doc type, and a runtime estimate calibrated against live Obsidian CLI latency. Nothing is modified.
+
+### `/backfill-frontmatter`
+
+Upgrades legacy vault notes to the current frontmatter standard (`type`, `date`, `duration_s`, normalized `model` + `context_window`) so historical captures appear in the managed bases. Derives everything from the notes themselves — never Claude Code session data. Runs in the background with regular progress reports (rate + ETA), can be interrupted at any time, and resumes on re-run by skipping notes already at the standard.
 
 ### `/backport-journal`
 

@@ -4,10 +4,9 @@
 // is compared against the canonical definition and replaced when it differs,
 // discarding any manual adjustments. Users opt out via `[bases] enabled = false`.
 
-import { join } from "node:path"
 import { createVaultNote, runObsidian } from "./obsidian.ts"
 import { debugLog } from "./text.ts"
-import { type Config, PLUGIN_ROOT } from "./types.ts"
+import type { Config } from "./types.ts"
 
 /** Version of the managed base definitions. Bump when definitions change so
  *  per-session hint gating re-syncs after a plugin update. */
@@ -461,22 +460,8 @@ export function syncBases(
 }
 
 /** True when this sync created every managed base net-new — the first-install
- *  signal that triggers the one-time frontmatter backfill. Re-creating a
+ *  signal used to suggest the /backfill-frontmatter command. Re-creating a
  *  single manually-deleted base does not qualify. */
-export function shouldRunInitialBackfill(result: SyncBasesResult, config: Config): boolean {
+export function isFirstBasesInstall(result: SyncBasesResult, config: Config): boolean {
   return result.synced && result.created.length === buildBaseDefinitions(config).length
-}
-
-/** Spawn the frontmatter backfill script as a detached background process so
- *  hook timeouts are never at risk. Never throws. */
-export function startBackfillProcess(cwd?: string, debugLogPath?: string): void {
-  try {
-    const script = join(PLUGIN_ROOT, "hooks", "backfill-frontmatter.ts")
-    const args = ["bun", script, "--quiet", ...(cwd ? ["--cwd", cwd] : [])]
-    const proc = Bun.spawn(args, { stdin: "ignore", stdout: "ignore", stderr: "ignore" })
-    proc.unref()
-    if (debugLogPath) debugLog(`backfill-frontmatter spawned (pid ${proc.pid})\n`, debugLogPath)
-  } catch (err) {
-    if (debugLogPath) debugLog(`failed to spawn backfill: ${err}\n`, debugLogPath)
-  }
 }

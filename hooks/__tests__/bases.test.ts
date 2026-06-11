@@ -1,10 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import {
-  type BasesIo,
-  buildBaseDefinitions,
-  shouldRunInitialBackfill,
-  syncBases,
-} from "../lib/bases.ts"
+import { type BasesIo, buildBaseDefinitions, isFirstBasesInstall, syncBases } from "../lib/bases.ts"
 import { DEFAULT_CONFIG } from "../lib/config.ts"
 import { durationSeconds } from "../lib/dates.ts"
 import { normalizeModelId, parseModelContextCap } from "../lib/text.ts"
@@ -166,28 +161,28 @@ describe("syncBases", () => {
   })
 })
 
-describe("shouldRunInitialBackfill", () => {
-  it("triggers only when every managed base was created net-new", () => {
+describe("isFirstBasesInstall", () => {
+  it("is true only when every managed base was created net-new", () => {
     const io = memoryIo()
     const firstRun = syncBases(baseConfig, undefined, io)
-    expect(shouldRunInitialBackfill(firstRun, baseConfig)).toBe(true)
+    expect(isFirstBasesInstall(firstRun, baseConfig)).toBe(true)
   })
 
-  it("does not trigger when only some bases were recreated", () => {
+  it("is false when only some bases were recreated", () => {
     const io = memoryIo()
     syncBases(baseConfig, undefined, io)
     delete io.files["Claude/Bases/claude-runs.base"]
     const partial = syncBases(baseConfig, undefined, io)
     expect(partial.created).toEqual(["Claude/Bases/claude-runs.base"])
-    expect(shouldRunInitialBackfill(partial, baseConfig)).toBe(false)
+    expect(isFirstBasesInstall(partial, baseConfig)).toBe(false)
   })
 
-  it("does not trigger on a no-op or disabled sync", () => {
+  it("is false on a no-op or disabled sync", () => {
     const io = memoryIo()
     syncBases(baseConfig, undefined, io)
-    expect(shouldRunInitialBackfill(syncBases(baseConfig, undefined, io), baseConfig)).toBe(false)
+    expect(isFirstBasesInstall(syncBases(baseConfig, undefined, io), baseConfig)).toBe(false)
     const disabled: Config = { ...baseConfig, bases: { enabled: false, path: "Claude/Bases" } }
-    expect(shouldRunInitialBackfill(syncBases(disabled, undefined, io), disabled)).toBe(false)
+    expect(isFirstBasesInstall(syncBases(disabled, undefined, io), disabled)).toBe(false)
   })
 })
 

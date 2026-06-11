@@ -33,8 +33,6 @@ import {
   readContextHintFull,
   resolveContextCap,
   type SessionState,
-  shouldRunInitialBackfill,
-  startBackfillProcess,
   stripTitleLine,
   summarizeWithClaude,
   syncBases,
@@ -292,12 +290,7 @@ ${stripTitleLine(planContent)}
     // plugin (or was skipped) — gated by the hint so it runs at most once per session.
     if (planHint?.bases_synced !== BASES_VERSION) {
       const basesResult = syncBases(config, DEBUG_LOG)
-      if (basesResult.synced) {
-        updateContextHint(sessionId, { bases_synced: BASES_VERSION })
-        if (shouldRunInitialBackfill(basesResult, config)) {
-          startBackfillProcess(payload.cwd, DEBUG_LOG)
-        }
-      }
+      if (basesResult.synced) updateContextHint(sessionId, { bases_synced: BASES_VERSION })
     }
 
     console.log(`Plan captured -> ${planPath}.md`)
