@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-// backport-journal.ts — Import plans from ~/.claude/plans/ into Obsidian vault + journal
+// backport-journal.ts — Import plans from Claude Code's plans dir into Obsidian vault + journal
 // CLI script (not a hook). Run via: bun hooks/backport-journal.ts [options]
 
 import { existsSync, readFileSync, statSync } from "node:fs"
-import { homedir } from "node:os"
 import { join } from "node:path"
 import {
   appendOrCreateCallout,
   type Config,
+  claudeConfigDir,
   createVaultNote,
   extractTitle,
   formatJournalRevision,
@@ -34,10 +34,10 @@ import {
   updateJournalFrontmatter,
 } from "./shared.ts"
 
-/** Metadata for a plan file discovered in ~/.claude/plans/, including import status. */
+/** Metadata for a plan file discovered in `<config-dir>/plans/`, including import status. */
 export interface PlanInfo {
   sourceSlug: string // e.g., "abundant-juggling-petal"
-  sourcePath: string // ~/.claude/plans/abundant-juggling-petal.md
+  sourcePath: string // <config-dir>/plans/abundant-juggling-petal.md
   title: string // First # heading
   date: string // YYYY-MM-DD from file birthtime
   time: string // HH:MM from file birthtime
@@ -73,8 +73,8 @@ interface CliArgs {
   cwd?: string
 }
 
-let PLANS_DIR = join(homedir(), ".claude", "plans")
-let PROJECTS_DIR = join(homedir(), ".claude", "projects")
+let PLANS_DIR = join(claudeConfigDir(), "plans")
+let PROJECTS_DIR = join(claudeConfigDir(), "projects")
 
 /** @internal Test-only setter for plans directory */
 export function _setPlansDirForTest(dir: string): void {
@@ -186,7 +186,7 @@ export function getImportedSlugs(vaultPath: string, planPathRelative: string): S
   return imported
 }
 
-/** Discover all plan files in ~/.claude/plans/, resolving their project and import status. */
+/** Discover all plan files in `<config-dir>/plans/`, resolving their project and import status. */
 export function discoverPlans(vaultPath: string, planPathRelative: string): PlanInfo[] {
   const slugProjectMap = buildSlugProjectMap()
   const importedSlugs = getImportedSlugs(vaultPath, planPathRelative)

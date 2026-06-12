@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  claudeConfigDir,
   contextHintPath,
   createVaultNote,
   ensureMdExt,
@@ -745,7 +746,7 @@ async function main(): Promise<void> {
   // Slug transform must match findTranscriptPath(): replace / and \, then drop
   // Windows drive-letter colons so the projects subdir is a valid filename.
   const cwdSlug = `-${tempCwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-  const projectDir = join(process.env.HOME || "", ".claude", "projects", cwdSlug)
+  const projectDir = join(claudeConfigDir(), "projects", cwdSlug)
   mkdirSync(projectDir, { recursive: true })
   const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
   writeFileSync(transcriptPath, buildTranscript(sessionId, PLAN_CONTENT))

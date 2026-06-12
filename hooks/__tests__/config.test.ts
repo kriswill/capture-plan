@@ -3,12 +3,38 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  claudeConfigDir,
   DEFAULT_CONFIG,
   findTranscriptPath,
   getUserConfigDir,
   loadConfig,
   userGlobalConfigPath,
 } from "../lib/config.ts"
+
+describe("claudeConfigDir", () => {
+  it("returns CLAUDE_CONFIG_DIR when set", () => {
+    const originalEnv = process.env.CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = "/Users/testuser/.claude-work"
+    expect(claudeConfigDir()).toBe("/Users/testuser/.claude-work")
+    if (originalEnv === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = originalEnv
+  })
+
+  it("falls back to ~/.claude when unset", () => {
+    const originalEnv = process.env.CLAUDE_CONFIG_DIR
+    delete process.env.CLAUDE_CONFIG_DIR
+    expect(claudeConfigDir()).toBe(join(homedir(), ".claude"))
+    if (originalEnv !== undefined) process.env.CLAUDE_CONFIG_DIR = originalEnv
+  })
+
+  it("falls back to ~/.claude when set to an empty or blank string", () => {
+    const originalEnv = process.env.CLAUDE_CONFIG_DIR
+    process.env.CLAUDE_CONFIG_DIR = "  "
+    expect(claudeConfigDir()).toBe(join(homedir(), ".claude"))
+    if (originalEnv === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = originalEnv
+  })
+})
 
 describe("getUserConfigDir", () => {
   it("returns LOCALAPPDATA path on win32 when LOCALAPPDATA is set", () => {

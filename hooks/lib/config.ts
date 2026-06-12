@@ -16,7 +16,20 @@ import {
   type SessionConfig,
 } from "./types.ts"
 
-/** Claude Code session file shape at ~/.claude/sessions/{pid}.json. */
+/**
+ * Returns Claude Code's config directory, honoring the `CLAUDE_CONFIG_DIR` env var.
+ * Claude Code resolves its config dir as `$CLAUDE_CONFIG_DIR` when set, else `~/.claude`
+ * (no XDG support, same rule on all platforms). Hooks inherit the session environment,
+ * so the env var is visible here. Split-profile setups (e.g. `~/.claude-me`) rely on this —
+ * never hardcode `~/.claude`.
+ */
+export function claudeConfigDir(): string {
+  const fromEnv = process.env.CLAUDE_CONFIG_DIR
+  if (fromEnv && fromEnv.trim() !== "") return fromEnv
+  return join(homedir(), ".claude")
+}
+
+/** Claude Code session file shape at `<config-dir>/sessions/{pid}.json`. */
 export interface CcSession {
   pid: number
   sessionId: string
@@ -26,9 +39,9 @@ export interface CcSession {
   entrypoint?: string
 }
 
-/** Find the active Claude Code session for a given CWD by scanning ~/.claude/sessions/. Picks the session with the highest startedAt when multiple match. */
+/** Find the active Claude Code session for a given CWD by scanning `<config-dir>/sessions/`. Picks the session with the highest startedAt when multiple match. */
 export function findActiveSession(cwd: string, sessionsDir?: string): CcSession | null {
-  sessionsDir ??= join(homedir(), ".claude", "sessions")
+  sessionsDir ??= join(claudeConfigDir(), "sessions")
   let entries: string[]
   try {
     entries = readdirSync(sessionsDir)
@@ -449,7 +462,7 @@ export function resolveContextCap(
 /** Locate the JSONL transcript file for a session using the cwd-derived project slug. */
 export function findTranscriptPath(sessionId: string, cwd?: string): string | null {
   if (!cwd) return null
-  const projectsDir = join(homedir(), ".claude", "projects")
+  const projectsDir = join(claudeConfigDir(), "projects")
   // Replace both / and \ with -, then remove any remaining : (Windows drive letter)
   const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
   const p = join(projectsDir, slug, `${sessionId}.jsonl`)

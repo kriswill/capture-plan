@@ -5,7 +5,7 @@ description: Backport existing plans into the Obsidian daily journal. Use when p
 
 # Backport Journal
 
-Import plans from `~/.claude/plans/` into the Obsidian vault, creating both the vault plan note and a daily journal entry. Plans already imported (tracked via `source_slug` frontmatter) are skipped.
+Import plans from Claude Code's plans directory (`$CLAUDE_CONFIG_DIR/plans/`, defaulting to `~/.claude/plans/` when the env var is unset) into the Obsidian vault, creating both the vault plan note and a daily journal entry. Plans already imported (tracked via `source_slug` frontmatter) are skipped. The script resolves the directory itself — no path needs to be passed.
 
 ## Procedure
 
@@ -20,11 +20,11 @@ bun ${CLAUDE_PLUGIN_ROOT}/hooks/backport-journal.ts --list 2>/dev/null
 Parse the JSON output. Each entry has: `sourceSlug`, `title`, `date`, `ampmTime`, `projectLabel`, `isImported`.
 
 Count totals:
-- Total plans found in `~/.claude/plans/`
+- Total plans found in the plans directory
 - Already imported to vault
 - New (not yet imported)
 
-Tell the user: "Found N plans in ~/.claude/plans/, M already imported to vault, K are new."
+Tell the user: "Found N plans in the Claude Code plans directory, M already imported to vault, K are new."
 
 If no new plans exist, inform the user and stop.
 
