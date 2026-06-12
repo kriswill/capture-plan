@@ -115,19 +115,14 @@ describe("loadConfig project_name", () => {
 
 describe("CONFIG_DEBUG_LOG path", () => {
   it("uses platform-aware temp directory, not hardcoded /tmp", async () => {
-    // Import the config module to check that CONFIG_DEBUG_LOG is using tmpdir()
-    // Since CONFIG_DEBUG_LOG is a constant, we verify it was constructed with tmpdir()
-    const expectedPath = join(tmpdir(), "capture-config-debug.log")
-
-    // The config module should define CONFIG_DEBUG_LOG using tmpdir()
-    // This test verifies the path construction is cross-platform
-    expect(expectedPath).toContain("capture-config-debug.log")
-
-    // On Windows, tmpdir() returns something like C:\Users\...\AppData\Local\Temp
-    // On Unix, it returns /tmp or similar
-    // Both should work without hardcoding /tmp
-    const tempDir = tmpdir()
-    expect(tempDir).not.toBe("/tmp") // Verify tmpdir() returns platform-specific value
+    // CONFIG_DEBUG_LOG is module-private, so check the source directly:
+    // the debug log path must be built with tmpdir(), never a hardcoded /tmp prefix.
+    // (tmpdir() itself may legitimately return "/tmp" on Linux.)
+    const source = await Bun.file(join(import.meta.dir, "..", "lib", "config.ts")).text()
+    const definition = source.split("\n").find((line) => line.includes("CONFIG_DEBUG_LOG ="))
+    expect(definition).toBeDefined()
+    expect(definition).toContain("tmpdir()")
+    expect(definition).not.toContain('"/tmp')
   })
 })
 
