@@ -18,6 +18,14 @@ export interface SessionConfig {
   enabled?: boolean
 }
 
+/** Configuration for plugin-managed Obsidian Bases (.base database views). */
+export interface BasesConfig {
+  /** When true (default), the plugin creates and authoritatively maintains its .base files. */
+  enabled: boolean
+  /** Vault-relative folder where managed .base files live. */
+  path: string
+}
+
 /** Which layer of the TOML config cascade a value originated from. */
 export type ConfigLayer = "plugin" | "user" | "project"
 
@@ -39,6 +47,7 @@ export interface Config {
   journal: PathConfig
   skills: PathConfig
   session: SessionConfig
+  bases: BasesConfig
   context_cap?: number
   superpowers_spec_pattern?: string
   superpowers_plan_pattern?: string
@@ -104,6 +113,8 @@ export interface ContextHint {
   session_doc_path?: string
   /** Vault-relative plan directory path (set by capture-plan when state is written, cleared by capture-done after consumption). */
   plan_dir?: string
+  /** BASES_VERSION that was last synced to the vault this session (skips redundant re-sync). */
+  bases_synced?: number
 }
 
 /** A subagent prompt to be written as a separate note in the vault. */

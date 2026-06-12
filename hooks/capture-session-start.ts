@@ -9,7 +9,17 @@ import { join } from "node:path"
 import { createSessionDoc } from "./lib/session-doc.ts"
 
 import { PLUGIN_ROOT } from "./lib/types.ts"
-import { contextHintPath, debugLog, detectCcVersion, getProjectName, loadConfig } from "./shared.ts"
+import {
+  BASES_VERSION,
+  contextHintPath,
+  debugLog,
+  detectCcVersion,
+  getProjectName,
+  isFirstBasesInstall,
+  loadConfig,
+  parseModelContextCap,
+  syncBases,
+} from "./shared.ts"
 
 const DEBUG_LOG = join(tmpdir(), "capture-plan-debug.log")
 
@@ -23,21 +33,12 @@ interface SessionStartPayload {
   [key: string]: unknown
 }
 
+export { parseModelContextCap } from "./lib/text.ts"
 export type { ContextHint } from "./lib/types.ts"
-
-/** Parse context window size from a model identifier like "claude-opus-4-6[1m]". */
-export function parseModelContextCap(model: string): number | undefined {
-  const match = model.match(/\[(\d+)([km])\]/i)
-  if (!match) return undefined
-  const num = Number(match[1])
-  const unit = match[2].toLowerCase()
-  if (unit === "m") return num * 1_000_000
-  if (unit === "k") return num * 1_000
-  return undefined
-}
 
 async function main(): Promise<void> {
   let sessionEnabled = false
+  let suggestBackfill = false
   try {
     const input = await Bun.stdin.text()
     const envRoot = process.env.CLAUDE_PLUGIN_ROOT ?? "unset"
@@ -103,6 +104,20 @@ async function main(): Promise<void> {
     writeFileSync(hintFile, JSON.stringify(hint))
     debugLog(`Context hint written: ${hintFile} cap=${contextCap ?? "auto"}\n`, DEBUG_LOG)
 
+    // Reconcile managed .base files with their canonical definitions (authoritative:
+    // manual edits are replaced). Once per session — downstream hooks skip via the hint.
+    const basesResult = syncBases(config, DEBUG_LOG)
+    if (basesResult.synced) {
+      hint.bases_synced = BASES_VERSION
+      writeFileSync(hintFile, JSON.stringify(hint))
+      if (basesResult.written.length > 0) {
+        debugLog(`Bases synced: ${basesResult.written.join(", ")}\n`, DEBUG_LOG)
+      }
+      // First install (all bases net-new): suggest the opt-in backfill commands
+      // via the SessionStart context message instead of running anything.
+      suggestBackfill = isFirstBasesInstall(basesResult, config)
+    }
+
     // Create session document in the vault if sessions are enabled
     if (sessionEnabled) {
       const now = new Date().toISOString()
@@ -137,11 +152,14 @@ async function main(): Promise<void> {
     const detail = sessionEnabled
       ? "Session capture is ON — events will be logged to the vault."
       : "Session capture is OFF."
+    const backfillNote = suggestBackfill
+      ? " Managed Obsidian bases were created for the first time. Existing notes may predate the current frontmatter standard — suggest the user run /backfill-frontmatter-estimation to scope an upgrade, then /backfill-frontmatter to apply it."
+      : ""
     console.log(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "SessionStart",
-          additionalContext: detail,
+          additionalContext: detail + backfillNote,
         },
       }),
     )

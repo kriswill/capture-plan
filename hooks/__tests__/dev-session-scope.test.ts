@@ -37,14 +37,17 @@ describe("isDevSessionInPluginRepo", () => {
   // returns an absolute path (e.g. "D:\..."), which neither equals "" nor starts
   // with "..". Without an isAbsolute() guard, the predicate would incorrectly
   // tag a project on a different drive as "in plugin repo" and skip skill capture.
-  const itWin = platform() === "win32" ? it : it.skip
-  itWin("returns false when cwd is on a different drive than pluginRoot (Windows)", () => {
-    expect(
-      isDevSessionInPluginRepo(
-        "D:\\Perforce\\depots\\1666\\depot\\main",
-        "C:\\Users\\u\\.claude\\plugins\\cache\\kriswill\\capture-plan\\0.6.2",
-        true,
-      ),
-    ).toBe(false)
-  })
+  // Registered only on win32 (node:path is platform-bound, so the scenario
+  // cannot occur on POSIX) — on other platforms it doesn't appear at all.
+  if (platform() === "win32") {
+    it("returns false when cwd is on a different drive than pluginRoot (Windows)", () => {
+      expect(
+        isDevSessionInPluginRepo(
+          "D:\\Perforce\\depots\\1666\\depot\\main",
+          "C:\\Users\\u\\.claude\\plugins\\cache\\kriswill\\capture-plan\\0.6.2",
+          true,
+        ),
+      ).toBe(false)
+    })
+  }
 })

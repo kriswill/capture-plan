@@ -8,6 +8,7 @@ import { PLAN_SYSTEM_PROMPT } from "./lib/prompts.ts"
 import {
   appendEvent,
   appendOrCreateCallout,
+  BASES_VERSION,
   cleanupStaleStates,
   createVaultNote,
   debugLog,
@@ -36,6 +37,7 @@ import {
   type SessionState,
   stripTitleLine,
   summarizeWithClaude,
+  syncBases,
   toSlug,
   updateContextHint,
   updateJournalFrontmatter,
@@ -204,6 +206,8 @@ async function main(): Promise<void> {
     )
 
     const noteContent = `---
+type: plan
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"${project ? `\nproject: ${project}` : ""}${tagsYaml ? `\ntags:\n${tagsYaml}` : ""}${sessionYaml}${ccVersionYaml}${modelYaml}
 ---
 # ${title}
@@ -283,6 +287,13 @@ ${stripTitleLine(planContent)}
 
     // Opportunistic cleanup of stale state files from previous sessions
     cleanupStaleStates(config)
+
+    // Belt-and-suspenders bases sync for sessions whose SessionStart predates the
+    // plugin (or was skipped) — gated by the hint so it runs at most once per session.
+    if (planHint?.bases_synced !== BASES_VERSION) {
+      const basesResult = syncBases(config, DEBUG_LOG)
+      if (basesResult.synced) updateContextHint(sessionId, { bases_synced: BASES_VERSION })
+    }
 
     console.log(`Plan captured -> ${planPath}.md`)
     debugLog(`State written for session ${sessionId}\n`, DEBUG_LOG)

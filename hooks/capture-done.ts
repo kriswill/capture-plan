@@ -15,6 +15,7 @@ import {
   debugLog,
   deleteVaultState,
   detectCcVersion,
+  durationSeconds,
   ensureSessionRelocated,
   extractTitle,
   findTranscriptPath,
@@ -146,6 +147,8 @@ async function buildSuperpowersState(
   )
 
   const noteContent = `---
+type: plan
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"${project ? `\nproject: ${project}` : ""}${tagsYaml ? `\ntags:\n${tagsYaml}` : ""}${spSessionYaml}${ccVersionYaml}${modelYaml}
 source: superpowers${primary.filePath ? `\nspec_file: "${primary.filePath}"` : ""}
 ---
@@ -168,6 +171,8 @@ ${stripTitleLine(planContent)}
     const spec = specs[specs.length - 1]
     const specTitle = extractTitle(spec.content)
     const specNoteContent = `---
+type: spec
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"${project ? `\nproject: ${project}` : ""}
 plan: "[[${planPath}|${title}]]"
 source: superpowers
@@ -331,6 +336,8 @@ async function buildSkillState(
   )
 
   const noteContent = `---
+type: activity
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"${project ? `\nproject: ${project}` : ""}${tagsYaml ? `\ntags:\n${tagsYaml}` : ""}${skillSessionYaml}${ccVersionYaml}${modelYaml}
 source: skill
 skills:
@@ -707,7 +714,7 @@ async function main(): Promise<void> {
     const doneText = selectDoneText(payloadMessage, stats, summary)
 
     // Build the summary note
-    const { datetime, ampmTime } = getDateParts()
+    const { datetime, ampmTime, dateKey } = getDateParts()
     const journalPath = getJournalPath(config)
 
     const summaryPath = `${state.plan_dir}/summary`
@@ -737,9 +744,12 @@ async function main(): Promise<void> {
     const ccVersionYaml = formatCcVersionYaml(ccVersion)
 
     const noteContent = `---
+type: summary
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"${project ? `\nproject: ${project}` : ""}${tagsYaml ? `\ntags:\n${tagsYaml}` : ""}
 plan: "[[${state.plan_dir}/${state.source === "skill" ? "activity" : "plan"}|${state.plan_title.replace(/"/g, '\\"')}]]"
-duration: "${duration}"${ccVersionYaml}${modelYaml}
+duration: "${duration}"
+duration_s: ${durationSeconds(durationMs)}${ccVersionYaml}${modelYaml}
 ---
 # Done: ${state.plan_title}
 
@@ -784,6 +794,8 @@ ${fileList}
         const skillNotePath = `${state.plan_dir}/${inv.skill}${suffix}`
         const contextText = [inv.contextBefore, inv.contextAfter].filter(Boolean).join("\n\n")
         const skillNoteContent = `---
+type: skill
+date: ${dateKey}
 created: "[[${journalPath}|${datetime}]]"
 plan: "[[${state.plan_dir}/plan|${state.plan_title.replace(/"/g, '\\"')}]]"
 source: skill

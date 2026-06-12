@@ -80,6 +80,11 @@ export function detectDateScheme(dateSegment: string): DateScheme | undefined {
   return undefined
 }
 
+/** Convert a millisecond duration to whole seconds for numeric frontmatter fields. */
+export function durationSeconds(ms: number): number {
+  return Math.round(ms / 1000)
+}
+
 /** Format a millisecond duration as a human-readable string (e.g. "3m 12s", "1h 5m"). */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)

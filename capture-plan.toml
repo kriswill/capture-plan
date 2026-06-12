@@ -22,6 +22,13 @@ date_scheme = "calendar"   # calendar | compact | monthly | flat
 # path = "Claude/Skills"
 # date_scheme = "calendar"   # calendar | compact | monthly | flat
 
+# Obsidian Bases (database views over captured notes) — managed by the plugin.
+# The plugin keeps these .base files authoritative: manual edits are replaced
+# on the next session start. Set enabled = false to stop managing them.
+[bases]
+enabled = true
+path = "Claude/Bases"
+
 # Context window cap in tokens (auto-detected, override if needed)
 # Standard: 200000, Max/Enterprise: 1000000
 # context_cap = 1000000

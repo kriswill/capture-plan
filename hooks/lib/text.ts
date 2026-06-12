@@ -163,6 +163,24 @@ export function formatSessionYaml(
   return `\nsession: "[[${docPath}|${shortSessionId(sessionId)}]]"`
 }
 
+/** Strip a context-window suffix from a model identifier, normalizing both
+ *  payload style ("claude-opus-4-8[1m]") and legacy frontmatter style
+ *  ("claude-opus-4-8 (1M)") to the bare model id. */
+export function normalizeModelId(model: string): string {
+  return model.replace(/\s*[([]\s*\d+\s*[km]\s*[)\]]\s*$/i, "").trim()
+}
+
+/** Parse the context window size from a model identifier suffix (e.g. "claude-opus-4-6[1m]" -> 1000000). Returns undefined when no suffix is present. */
+export function parseModelContextCap(model: string): number | undefined {
+  const match = model.match(/\[(\d+)([km])\]/i)
+  if (!match) return undefined
+  const num = Number(match[1])
+  const unit = match[2].toLowerCase()
+  if (unit === "m") return num * 1_000_000
+  if (unit === "k") return num * 1_000
+  return undefined
+}
+
 /** Format a number with locale-aware thousands separators (e.g. 1,234). */
 export function formatNumber(n: number): string {
   return n.toLocaleString("en-US")

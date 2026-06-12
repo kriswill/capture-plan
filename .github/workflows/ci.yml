@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint and format check
+        run: bun check
+
+      - name: Run tests
+        run: bun test --reporter=junit --reporter-outfile=test-results.xml
+        env:
+          FORCE_COLOR: "1"
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        run: bun scripts/junit-summary.ts test-results.xml

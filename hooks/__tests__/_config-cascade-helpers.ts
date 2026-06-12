@@ -241,7 +241,11 @@ export async function runPrintConfig(fixture: CascadeFixture): Promise<PrintConf
       writeFileSync(join(pluginDir, "capture-plan.toml"), fixture.pluginToml, "utf8")
     }
     if (fixture.userToml !== undefined) {
-      const userConfigDir = join(userDir, "capture-plan")
+      // Mirror getUserConfigDir: %LOCALAPPDATA%\capture-plan on Windows, ~/.config/capture-plan on POSIX
+      const userConfigDir =
+        process.platform === "win32"
+          ? join(userDir, "capture-plan")
+          : join(userDir, ".config", "capture-plan")
       mkdirSync(userConfigDir, { recursive: true })
       writeFileSync(join(userConfigDir, "config.toml"), fixture.userToml, "utf8")
     }

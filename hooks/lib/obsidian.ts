@@ -25,6 +25,48 @@ export function runObsidian(
   }
 }
 
+/** Default per-call watchdog for runObsidianAsync. */
+const OBSIDIAN_ASYNC_TIMEOUT_MS = 15_000
+
+/** Async variant of runObsidian for concurrent batch operations (e.g. the
+ *  frontmatter backfill's worker pool). Same error detection semantics, plus
+ *  a per-call watchdog: a CLI invocation that produces no result within the
+ *  timeout is killed and reported as a failure instead of hanging the pool. */
+export async function runObsidianAsync(
+  args: string[],
+  vault?: string,
+  timeoutMs: number = OBSIDIAN_ASYNC_TIMEOUT_MS,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  try {
+    const cmd = vault ? ["obsidian", `vault=${vault}`, ...args] : ["obsidian", ...args]
+    const proc = Bun.spawn(cmd, { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const watchdog = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => {
+        proc.kill()
+        resolve("timeout")
+      }, timeoutMs)
+    })
+    const completion = Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    const result = await Promise.race([completion, watchdog])
+    clearTimeout(timer)
+    if (result === "timeout") {
+      return { stdout: "", stderr: `timed out after ${timeoutMs}ms`, exitCode: 1 }
+    }
+    const [stdoutRaw, stderrRaw, rawExit] = result
+    const stdout = stdoutRaw.trim()
+    const stderr = stderrRaw.trim()
+    const exitCode = rawExit !== 0 || stdout.startsWith("Error:") ? 1 : 0
+    return { stdout, stderr, exitCode }
+  } catch {
+    return { stdout: "", stderr: "", exitCode: 1 }
+  }
+}
+
 /** Create or replace a note in the vault via the Obsidian CLI.
  *  Uses the `overwrite` flag to atomically replace existing files without
  *  triggering Obsidian's auto-link-update (which corrupts wikilinks). */
@@ -225,7 +267,8 @@ export function updateJournalFrontmatter(
 ): void {
   if (!journalPath) return
 
-  // date and day: idempotent set
+  // type, date, and day: idempotent set
+  setVaultProperty(journalPath, "type", "journal", "text", vault)
   setVaultProperty(journalPath, "date", props.date, "date", vault)
   setVaultProperty(journalPath, "day", props.day, "text", vault)
 

@@ -2,6 +2,7 @@
 
 // shared.ts — Barrel re-export of all shared utilities
 
+export * from "./lib/bases.ts"
 export * from "./lib/config.ts"
 export * from "./lib/dates.ts"
 export * from "./lib/formatting.ts"

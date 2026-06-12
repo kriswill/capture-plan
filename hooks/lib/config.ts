@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { DATE_SCHEMES, type DateScheme } from "./dates.ts"
 import { debugLog, filterNoiseTags } from "./text.ts"
 import {
+  type BasesConfig,
   type Config,
   type ConfigLayer,
   type ConfigWarning,
@@ -89,11 +90,18 @@ const DEFAULT_PLAN_PATH = "Claude/Plans"
 const DEFAULT_JOURNAL_PATH = "Claude/Journal"
 const DEFAULT_SKILLS_PATH = "Claude/Skills"
 const DEFAULT_SESSION_PATH = "Claude/Sessions"
+const DEFAULT_BASES_PATH = "Claude/Bases"
 const DEFAULT_DATE_SCHEME: DateScheme = "calendar"
 
 /** Default session configuration. */
 const DEFAULT_SESSION_CONFIG: SessionConfig = {
   path: DEFAULT_SESSION_PATH,
+}
+
+/** Default bases configuration: managed bases on, in Claude/Bases. */
+const DEFAULT_BASES_CONFIG: BasesConfig = {
+  enabled: true,
+  path: DEFAULT_BASES_PATH,
 }
 
 /** Default plugin configuration for reference and testing. */
@@ -102,6 +110,7 @@ export const DEFAULT_CONFIG: Config = {
   journal: { path: DEFAULT_JOURNAL_PATH, date_scheme: DEFAULT_DATE_SCHEME },
   skills: { path: DEFAULT_SKILLS_PATH, date_scheme: DEFAULT_DATE_SCHEME },
   session: DEFAULT_SESSION_CONFIG,
+  bases: DEFAULT_BASES_CONFIG,
 }
 
 const KNOWN_TOP_LEVEL_SCALAR_KEYS = [
@@ -239,6 +248,18 @@ export async function loadConfig(cwd?: string): Promise<Config> {
     enabled: sessionEnabled,
   }
 
+  // Resolve bases config: deep-merge [bases] tables across cascade layers.
+  // Managed bases default ON; only an explicit `enabled = false` disables them.
+  const deepBases = {
+    ...(pluginDefault?.bases as Record<string, unknown> | undefined),
+    ...(userGlobal?.bases as Record<string, unknown> | undefined),
+    ...(project?.bases as Record<string, unknown> | undefined),
+  }
+  const bases: BasesConfig = {
+    enabled: deepBases.enabled !== false,
+    path: (typeof deepBases.path === "string" && deepBases.path) || DEFAULT_BASES_PATH,
+  }
+
   return {
     vault: (merged.vault as string) || undefined,
     project_name: projectName,
@@ -246,6 +267,7 @@ export async function loadConfig(cwd?: string): Promise<Config> {
     journal: { path: journalPath, date_scheme: journalScheme },
     skills: { path: skillsPath, date_scheme: skillsScheme },
     session,
+    bases,
     context_cap: contextCap,
     superpowers_spec_pattern: (merged.superpowers_spec_pattern as string) || undefined,
     superpowers_plan_pattern: (merged.superpowers_plan_pattern as string) || undefined,
@@ -376,7 +398,7 @@ const CONFIG_DEBUG_LOG = join(tmpdir(), "capture-config-debug.log")
  */
 export function updateContextHint(
   sessionId: string,
-  patch: Partial<Pick<ContextHint, "plan_dir" | "session_doc_path">>,
+  patch: Partial<Pick<ContextHint, "plan_dir" | "session_doc_path" | "bases_synced">>,
 ): void {
   const hint = readContextHintFull(sessionId)
   if (!hint) {
