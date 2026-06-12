@@ -24,9 +24,18 @@ import {
  * never hardcode `~/.claude`.
  */
 export function claudeConfigDir(): string {
-  const fromEnv = process.env.CLAUDE_CONFIG_DIR
-  if (fromEnv && fromEnv.trim() !== "") return fromEnv
+  const fromEnv = process.env.CLAUDE_CONFIG_DIR?.trim()
+  if (fromEnv) return fromEnv
   return join(homedir(), ".claude")
+}
+
+/**
+ * Derive the Claude Code project-directory slug for a cwd, as used under
+ * `<config-dir>/projects/`: `/` and `\` become `-`, then `:` is dropped
+ * (Windows drive letters), with a leading `-`.
+ */
+export function projectSlug(cwd: string): string {
+  return `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
 }
 
 /** Claude Code session file shape at `<config-dir>/sessions/{pid}.json`. */
@@ -463,9 +472,7 @@ export function resolveContextCap(
 export function findTranscriptPath(sessionId: string, cwd?: string): string | null {
   if (!cwd) return null
   const projectsDir = join(claudeConfigDir(), "projects")
-  // Replace both / and \ with -, then remove any remaining : (Windows drive letter)
-  const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-  const p = join(projectsDir, slug, `${sessionId}.jsonl`)
+  const p = join(projectsDir, projectSlug(cwd), `${sessionId}.jsonl`)
   try {
     if (Bun.file(p).size > 0) return p
   } catch {

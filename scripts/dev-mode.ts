@@ -8,8 +8,8 @@
  */
 
 import { existsSync, lstatSync, renameSync, rmdirSync, rmSync, symlinkSync } from "node:fs"
-import { homedir } from "node:os"
 import { join, resolve } from "node:path"
+import { claudeConfigDir } from "../hooks/lib/config.ts"
 
 interface PluginMeta {
   name: string
@@ -28,10 +28,10 @@ const owner = plugin.author.name
 const name = plugin.name
 const { version } = pkg
 
-const home = homedir()
-const cachePath = join(home, ".claude", "plugins", "cache", owner, name, version)
+const configDir = claudeConfigDir()
+const cachePath = join(configDir, "plugins", "cache", owner, name, version)
 const cacheBackup = `${cachePath}.bak`
-const marketPath = join(home, ".claude", "plugins", "marketplaces", owner)
+const marketPath = join(configDir, "plugins", "marketplaces", owner)
 const marketBackup = `${marketPath}.bak`
 const symlinkType = process.platform === "win32" ? "junction" : undefined
 

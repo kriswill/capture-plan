@@ -28,6 +28,7 @@ import {
   loadConfig,
   nextCounter,
   padCounter,
+  projectSlug,
   runObsidian,
   shortSessionId,
   toSlug,
@@ -742,10 +743,7 @@ async function main(): Promise<void> {
   mkdirSync(tempCwd, { recursive: true })
 
   // Write synthetic transcript at the path findTranscriptPath() will discover.
-  // Slug transform must match findTranscriptPath(): replace / and \, then drop
-  // Windows drive-letter colons so the projects subdir is a valid filename.
-  const cwdSlug = `-${tempCwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-  const projectDir = join(claudeConfigDir(), "projects", cwdSlug)
+  const projectDir = join(claudeConfigDir(), "projects", projectSlug(tempCwd))
   mkdirSync(projectDir, { recursive: true })
   const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
   writeFileSync(transcriptPath, buildTranscript(sessionId, PLAN_CONTENT))
