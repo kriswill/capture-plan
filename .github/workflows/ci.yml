@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   test:
     name: test (${{ matrix.os }})
@@ -27,4 +31,13 @@ jobs:
         run: bun check
 
       - name: Run tests
-        run: bun test
+        run: bun test --reporter=junit --reporter-outfile=test-results.xml
+
+      - name: Test summary
+        uses: mikepenz/action-junit-report@v6
+        if: ${{ !cancelled() }}
+        with:
+          report_paths: test-results.xml
+          check_name: results (${{ matrix.os }})
+          detailed_summary: true
+          include_passed: true
