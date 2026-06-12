@@ -169,9 +169,9 @@ async function main(): Promise<void> {
   // ---- Phase 0: Preflight ----
   console.log("Preflight")
 
-  const obsCheck = Bun.spawnSync(["which", "obsidian"], { stdout: "pipe", stderr: "pipe" })
-  record("preflight", "obsidian CLI available", obsCheck.exitCode === 0)
-  if (obsCheck.exitCode !== 0) {
+  const obsAvailable = Bun.which("obsidian") !== null
+  record("preflight", "obsidian CLI available", obsAvailable)
+  if (!obsAvailable) {
     console.log("\nFatal: obsidian CLI not found.")
     process.exit(1)
   }

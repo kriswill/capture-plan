@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  claudeConfigDir,
   contextHintPath,
   createVaultNote,
   ensureMdExt,
@@ -27,6 +28,7 @@ import {
   loadConfig,
   nextCounter,
   padCounter,
+  projectSlug,
   runObsidian,
   shortSessionId,
   toSlug,
@@ -694,9 +696,8 @@ async function main(): Promise<void> {
   // ---- Phase 0: Setup ----
   console.log("Preflight")
 
-  // Check obsidian CLI
-  const obsCheck = Bun.spawnSync(["which", "obsidian"], { stdout: "pipe", stderr: "pipe" })
-  const obsAvailable = obsCheck.exitCode === 0
+  // Check obsidian CLI (Bun.which is cross-platform; `which` does not exist on Windows)
+  const obsAvailable = Bun.which("obsidian") !== null
   record("preflight", "obsidian CLI available", obsAvailable)
   if (!obsAvailable) {
     console.log("\nFatal: obsidian CLI not found. Install it to run the e2e test.")
@@ -742,10 +743,7 @@ async function main(): Promise<void> {
   mkdirSync(tempCwd, { recursive: true })
 
   // Write synthetic transcript at the path findTranscriptPath() will discover.
-  // Slug transform must match findTranscriptPath(): replace / and \, then drop
-  // Windows drive-letter colons so the projects subdir is a valid filename.
-  const cwdSlug = `-${tempCwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-  const projectDir = join(process.env.HOME || "", ".claude", "projects", cwdSlug)
+  const projectDir = join(claudeConfigDir(), "projects", projectSlug(tempCwd))
   mkdirSync(projectDir, { recursive: true })
   const transcriptPath = join(projectDir, `${sessionId}.jsonl`)
   writeFileSync(transcriptPath, buildTranscript(sessionId, PLAN_CONTENT))

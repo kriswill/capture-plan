@@ -1,31 +1,67 @@
-import { describe, expect, it } from "bun:test"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  claudeConfigDir,
   DEFAULT_CONFIG,
   findTranscriptPath,
   getUserConfigDir,
   loadConfig,
+  projectSlug,
   userGlobalConfigPath,
 } from "../lib/config.ts"
 
+/** Save an env var in beforeEach and restore it in afterEach, so a failing
+ *  assertion mid-test can't leak mutated env state into later tests. */
+function preserveEnv(name: string): void {
+  let original: string | undefined
+  beforeEach(() => {
+    original = process.env[name]
+  })
+  afterEach(() => {
+    if (original === undefined) delete process.env[name]
+    else process.env[name] = original
+  })
+}
+
+describe("claudeConfigDir", () => {
+  preserveEnv("CLAUDE_CONFIG_DIR")
+
+  it("returns CLAUDE_CONFIG_DIR when set", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/Users/testuser/.claude-work"
+    expect(claudeConfigDir()).toBe("/Users/testuser/.claude-work")
+  })
+
+  it("trims surrounding whitespace from CLAUDE_CONFIG_DIR", () => {
+    process.env.CLAUDE_CONFIG_DIR = " /Users/testuser/.claude-work "
+    expect(claudeConfigDir()).toBe("/Users/testuser/.claude-work")
+  })
+
+  it("falls back to ~/.claude when unset", () => {
+    delete process.env.CLAUDE_CONFIG_DIR
+    expect(claudeConfigDir()).toBe(join(homedir(), ".claude"))
+  })
+
+  it("falls back to ~/.claude when set to an empty or blank string", () => {
+    process.env.CLAUDE_CONFIG_DIR = "  "
+    expect(claudeConfigDir()).toBe(join(homedir(), ".claude"))
+  })
+})
+
 describe("getUserConfigDir", () => {
+  preserveEnv("LOCALAPPDATA")
+
   it("returns LOCALAPPDATA path on win32 when LOCALAPPDATA is set", () => {
-    const originalEnv = process.env.LOCALAPPDATA
     process.env.LOCALAPPDATA = "C:\\Users\\testuser\\AppData\\Local"
-    const result = getUserConfigDir("win32")
-    if (originalEnv === undefined) delete process.env.LOCALAPPDATA
-    else process.env.LOCALAPPDATA = originalEnv
-    expect(result).toBe(join("C:\\Users\\testuser\\AppData\\Local", "capture-plan"))
+    expect(getUserConfigDir("win32")).toBe(
+      join("C:\\Users\\testuser\\AppData\\Local", "capture-plan"),
+    )
   })
 
   it("returns AppData\\Local fallback on win32 when LOCALAPPDATA is unset", () => {
-    const originalEnv = process.env.LOCALAPPDATA
     delete process.env.LOCALAPPDATA
-    const result = getUserConfigDir("win32")
-    if (originalEnv !== undefined) process.env.LOCALAPPDATA = originalEnv
-    expect(result).toBe(join(homedir(), "AppData", "Local", "capture-plan"))
+    expect(getUserConfigDir("win32")).toBe(join(homedir(), "AppData", "Local", "capture-plan"))
   })
 
   it("returns ~/.config/capture-plan on non-Windows", () => {
@@ -48,29 +84,25 @@ describe("findTranscriptPath", () => {
   })
 
   it("handles forward slashes in cwd path", () => {
-    const cwd = "/home/user/projects/my-project"
-    const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-    expect(slug).toBe("--home-user-projects-my-project")
+    expect(projectSlug("/home/user/projects/my-project")).toBe("--home-user-projects-my-project")
   })
 
   it("handles backslashes in cwd path (Windows)", () => {
-    const cwd = "C:\\Users\\testuser\\projects\\my-project"
-    const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-    expect(slug).toBe("-C-Users-testuser-projects-my-project")
+    expect(projectSlug("C:\\Users\\testuser\\projects\\my-project")).toBe(
+      "-C-Users-testuser-projects-my-project",
+    )
   })
 
   it("removes drive letter colon on Windows paths", () => {
-    const cwd = "C:\\Users\\testuser\\projects"
-    const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-    // Should produce: -C-Users-testuser-projects (colon removed)
+    const slug = projectSlug("C:\\Users\\testuser\\projects")
     expect(slug).toBe("-C-Users-testuser-projects")
     expect(slug.includes(":")).toBe(false)
   })
 
   it("handles mixed separators", () => {
-    const cwd = "C:\\Users/testuser\\projects/my-project"
-    const slug = `-${cwd.replace(/[/\\]/g, "-").replace(/:/g, "")}`
-    expect(slug).toBe("-C-Users-testuser-projects-my-project")
+    expect(projectSlug("C:\\Users/testuser\\projects/my-project")).toBe(
+      "-C-Users-testuser-projects-my-project",
+    )
   })
 })
 
