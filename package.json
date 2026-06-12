@@ -12,9 +12,9 @@
     "check:fix": "bunx biome check --fix hooks/"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.9",
-    "@types/bun": "^1.3.11",
-    "@types/node": "^25.6.0",
-    "typescript": "^6.0.2"
+    "@biomejs/biome": "^2.5.0",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
   }
 }
