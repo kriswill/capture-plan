@@ -27,7 +27,7 @@ describe("print-config enumerates every config option", () => {
 })
 
 describe("default value and source when no layer sets the option", () => {
-  it.each(EXPECTED_OPTIONS)('"%s" reports default', (spec) => {
+  it.each(EXPECTED_OPTIONS)("$key reports default", (spec) => {
     const option = findOption(output.options, spec.key)
     expect(option.source).toBe("default")
     expect(option.value).toEqual(spec.defaultValue)
