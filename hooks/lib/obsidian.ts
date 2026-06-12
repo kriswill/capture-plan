@@ -181,6 +181,11 @@ export function getPlanDatePath(config: Config, dateParts: DateParts): string {
   return `${config.plan.path}/${formatDatePath(config.plan.date_scheme, dateParts)}`
 }
 
+/** Build the date directory path for skills using the configured scheme. */
+export function getSkillDatePath(config: Config, dateParts: DateParts): string {
+  return `${config.skills.path}/${formatDatePath(config.skills.date_scheme, dateParts)}`
+}
+
 /** Build the Obsidian vault path for the daily journal note on a given date. */
 export function getJournalPathForDate(config: Config, date: Date): string {
   const parts = getDatePartsFor(date)

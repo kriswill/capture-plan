@@ -4,12 +4,14 @@
 // and creates the initial session document in the vault.
 
 import { writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { createSessionDoc } from "./lib/session-doc.ts"
 
 import { PLUGIN_ROOT } from "./lib/types.ts"
 import { contextHintPath, debugLog, detectCcVersion, getProjectName, loadConfig } from "./shared.ts"
 
-const DEBUG_LOG = "/tmp/capture-plan-debug.log"
+const DEBUG_LOG = join(tmpdir(), "capture-plan-debug.log")
 
 interface SessionStartPayload {
   session_id: string

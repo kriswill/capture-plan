@@ -636,12 +636,46 @@ export interface SkillInvocation {
   contextAfter: string
 }
 
-/** Scan transcript for Skill tool_use blocks, capturing invocation metadata and surrounding context. */
+/** Extract the raw text from a user-entry message.content, which can be a string or array of blocks. */
+function getUserEntryText(entry: TranscriptEntry): string {
+  if (entry.type !== "user" && entry.type !== "human") return ""
+  const content = entry.message?.content
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  const texts: string[] = []
+  for (const b of content) {
+    if (b.type === "text" && b.text) texts.push(b.text)
+  }
+  return texts.join("\n")
+}
+
+const SLASH_COMMAND_NAME_RE = /<command-name>\/?([^<\s]+)<\/command-name>/
+const SLASH_COMMAND_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/
+
+/** Find the next assistant turn's text after entry index `i`. */
+function nextAssistantText(entries: TranscriptEntry[], i: number): string {
+  for (let j = i + 1; j < entries.length; j++) {
+    const nextBlocks = getContentBlocks(entries[j])
+    if (nextBlocks.length === 0) continue
+    const texts: string[] = []
+    for (const b of nextBlocks) {
+      if (b.type === "text" && b.text) texts.push(b.text)
+    }
+    if (texts.length > 0) return texts.join("\n\n")
+  }
+  return ""
+}
+
+/** Scan transcript for skill invocations: assistant `Skill` tool_use blocks AND user-typed `<command-name>` slash commands. */
 export function findSkillInvocations(entries: TranscriptEntry[]): SkillInvocation[] {
   const results: SkillInvocation[] = []
+  const seen = new Set<string>()
 
   for (let i = 0; i < entries.length; i++) {
-    const blocks = getContentBlocks(entries[i])
+    const entry = entries[i]
+
+    // Path A: assistant Skill tool_use block
+    const blocks = getContentBlocks(entry)
     for (const block of blocks) {
       if (block.type !== "tool_use" || block.name !== "Skill") continue
 
@@ -657,28 +691,39 @@ export function findSkillInvocations(entries: TranscriptEntry[]): SkillInvocatio
         if (b.type === "text" && b.text) textsBefore.push(b.text)
       }
 
-      // Find the next assistant turn's text
-      let contextAfter = ""
-      for (let j = i + 1; j < entries.length; j++) {
-        const nextBlocks = getContentBlocks(entries[j])
-        if (nextBlocks.length === 0) continue // skip non-assistant entries
-        const texts: string[] = []
-        for (const b of nextBlocks) {
-          if (b.type === "text" && b.text) texts.push(b.text)
-        }
-        if (texts.length > 0) {
-          contextAfter = texts.join("\n\n")
-          break
-        }
-      }
-
       results.push({
         index: i,
         skill,
         args,
         contextBefore: textsBefore.join("\n\n"),
-        contextAfter,
+        contextAfter: nextAssistantText(entries, i),
       })
+      seen.add(`${i}:${skill}`)
+    }
+
+    // Path B: user-typed slash command — `<command-name>X</command-name>` in a user/human turn
+    if (entry.type === "user" || entry.type === "human") {
+      const text = getUserEntryText(entry)
+      if (!text) continue
+      const nameMatch = text.match(SLASH_COMMAND_NAME_RE)
+      if (!nameMatch) continue
+      const skill = nameMatch[1]
+      if (!skill) continue
+      const key = `${i}:${skill}`
+      if (seen.has(key)) continue
+
+      const argsMatch = text.match(SLASH_COMMAND_ARGS_RE)
+      const rawArgs = argsMatch?.[1]?.trim()
+      const args = rawArgs ? rawArgs : undefined
+
+      results.push({
+        index: i,
+        skill,
+        args,
+        contextBefore: "",
+        contextAfter: nextAssistantText(entries, i),
+      })
+      seen.add(key)
     }
   }
 

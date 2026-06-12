@@ -3,9 +3,10 @@
 // Captures the "Done" summary after plan execution completes
 
 import { readFileSync } from "node:fs"
-import { basename } from "node:path"
+import { tmpdir } from "node:os"
+import { basename, join } from "node:path"
 import { DONE_SYSTEM_PROMPT, PLAN_SYSTEM_PROMPT, SKILL_SYSTEM_PROMPT } from "./lib/prompts.ts"
-import { IS_DEV_MODE } from "./lib/types.ts"
+import { IS_DEV_MODE, isDevSessionInPluginRepo, PLUGIN_ROOT } from "./lib/types.ts"
 import {
   appendEvent,
   appendOrCreateCallout,
@@ -32,6 +33,7 @@ import {
   getJournalPath,
   getPlanDatePath,
   getProjectName,
+  getSkillDatePath,
   getVaultPath,
   loadConfig,
   mergeTags,
@@ -71,7 +73,7 @@ import {
   transcriptContainsPatternInString,
 } from "./transcript.ts"
 
-const DEBUG_LOG = "/tmp/capture-done-debug.log"
+const DEBUG_LOG = join(tmpdir(), "capture-done-debug.log")
 const MIN_DONE_LENGTH = 50
 
 interface StopPayload {
@@ -257,7 +259,7 @@ async function buildSkillState(
   const slug = toSlug(title)
   const dateParts = getDateParts()
   const { dateKey, datetime, ampmTime } = dateParts
-  const dateDirRelative = getPlanDatePath(config, dateParts)
+  const dateDirRelative = getSkillDatePath(config, dateParts)
 
   const counter = nextCounter(dateDirRelative, config.vault)
 
@@ -517,7 +519,10 @@ async function main(): Promise<void> {
       const specPat = config.superpowers_spec_pattern || "/superpowers/specs/"
       const planPat = config.superpowers_plan_pattern || "/superpowers/plans/"
       const hasSuperpowers = transcriptContainsPatternInString(rawTranscript, [specPat, planPat])
-      const hasSkills = transcriptContainsPatternInString(rawTranscript, ['"Skill"'])
+      const hasSkills = transcriptContainsPatternInString(rawTranscript, [
+        '"Skill"',
+        "<command-name>",
+      ])
 
       if (!hasSuperpowers && !hasSkills) {
         // Compute per-cycle stats for the stop event
@@ -577,8 +582,8 @@ async function main(): Promise<void> {
 
       // Skill-only session (no superpowers state was built above)
       if (!state && hasSkills) {
-        if (IS_DEV_MODE) {
-          debugLog("Dev mode detected, skipping skill-only capture\n", DEBUG_LOG)
+        if (isDevSessionInPluginRepo(payload.cwd, PLUGIN_ROOT, IS_DEV_MODE)) {
+          debugLog("Dev session in plugin repo, skipping skill-only capture\n", DEBUG_LOG)
           flushEvents({ message: lastMessage })
           process.exit(0)
         }

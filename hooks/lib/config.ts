@@ -7,6 +7,8 @@ import { DATE_SCHEMES, type DateScheme } from "./dates.ts"
 import { debugLog, filterNoiseTags } from "./text.ts"
 import {
   type Config,
+  type ConfigLayer,
+  type ConfigWarning,
   type ContextHint,
   type ContextHintResult,
   PLUGIN_ROOT,
@@ -85,6 +87,7 @@ const USER_GLOBAL_CONFIG = userGlobalConfigPath()
 
 const DEFAULT_PLAN_PATH = "Claude/Plans"
 const DEFAULT_JOURNAL_PATH = "Claude/Journal"
+const DEFAULT_SKILLS_PATH = "Claude/Skills"
 const DEFAULT_SESSION_PATH = "Claude/Sessions"
 const DEFAULT_DATE_SCHEME: DateScheme = "calendar"
 
@@ -97,7 +100,57 @@ const DEFAULT_SESSION_CONFIG: SessionConfig = {
 export const DEFAULT_CONFIG: Config = {
   plan: { path: DEFAULT_PLAN_PATH, date_scheme: DEFAULT_DATE_SCHEME },
   journal: { path: DEFAULT_JOURNAL_PATH, date_scheme: DEFAULT_DATE_SCHEME },
+  skills: { path: DEFAULT_SKILLS_PATH, date_scheme: DEFAULT_DATE_SCHEME },
   session: DEFAULT_SESSION_CONFIG,
+}
+
+const KNOWN_TOP_LEVEL_SCALAR_KEYS = [
+  "vault",
+  "project_name",
+  "context_cap",
+  "capture_skills",
+  "plan_path",
+  "journal_path",
+  "skills_path",
+  "superpowers_spec_pattern",
+  "superpowers_plan_pattern",
+] as const
+
+const KNOWN_NESTED_TABLES = ["plan", "journal", "skills", "session"] as const
+
+/**
+ * For a single layer, lift any known top-level scalar key found scoped under a known nested table
+ * back to the layer's top level. Only lifts when the top-level slot is undefined for that layer.
+ * Returns a cloned layer (original is not mutated) and a list of warnings describing each lift.
+ */
+export function recoverStrayKeysFromLayer(
+  layer: Record<string, unknown> | null,
+  layerName: ConfigLayer,
+): { recovered: Record<string, unknown> | null; warnings: ConfigWarning[] } {
+  if (layer === null) return { recovered: null, warnings: [] }
+
+  const recovered: Record<string, unknown> = { ...layer }
+  const warnings: ConfigWarning[] = []
+
+  for (const tableName of KNOWN_NESTED_TABLES) {
+    const tableVal = recovered[tableName]
+    if (typeof tableVal !== "object" || tableVal === null || Array.isArray(tableVal)) {
+      continue
+    }
+    const nestedTable = tableVal as Record<string, unknown>
+
+    for (const key of KNOWN_TOP_LEVEL_SCALAR_KEYS) {
+      if (nestedTable[key] !== undefined && recovered[key] === undefined) {
+        recovered[key] = nestedTable[key]
+        const clonedTable = { ...nestedTable }
+        delete clonedTable[key]
+        recovered[tableName] = clonedTable
+        warnings.push({ key, table: tableName, layer: layerName })
+      }
+    }
+  }
+
+  return { recovered, warnings }
 }
 
 /** Load and parse a TOML file, returning null if the file is missing or unparseable. */
@@ -131,7 +184,13 @@ export async function loadConfig(cwd?: string): Promise<Config> {
   const userGlobal = await loadToml(USER_GLOBAL_CONFIG)
   const projectPath = cwd ? join(cwd, ".claude", "capture-plan.toml") : null
   const project = projectPath ? await loadToml(projectPath) : null
-  const merged = { ...pluginDefault, ...userGlobal, ...project }
+
+  const pluginR = recoverStrayKeysFromLayer(pluginDefault, "plugin")
+  const userR = recoverStrayKeysFromLayer(userGlobal, "user")
+  const projectR = recoverStrayKeysFromLayer(project, "project")
+  const warnings: ConfigWarning[] = [...pluginR.warnings, ...userR.warnings, ...projectR.warnings]
+  const merged = { ...pluginR.recovered, ...userR.recovered, ...projectR.recovered }
+
   const rawProjectName = merged.project_name
   const projectName =
     typeof rawProjectName === "string" && rawProjectName.trim() ? rawProjectName.trim() : undefined
@@ -147,6 +206,14 @@ export async function loadConfig(cwd?: string): Promise<Config> {
   const mergedPlan = merged.plan as Record<string, unknown> | undefined
   const planPath = (mergedPlan?.path as string) || (merged.plan_path as string) || DEFAULT_PLAN_PATH
   const planScheme = resolveScheme(mergedPlan?.date_scheme)
+
+  // Resolve skills config: grouped [skills] table takes precedence; date_scheme inherits from plan when omitted
+  const mergedSkills = merged.skills as Record<string, unknown> | undefined
+  const skillsPath =
+    (mergedSkills?.path as string) || (merged.skills_path as string) || DEFAULT_SKILLS_PATH
+  const skillsScheme = mergedSkills?.date_scheme
+    ? resolveScheme(mergedSkills.date_scheme as string)
+    : planScheme
 
   // Resolve journal config: grouped [journal] table takes precedence over flat journal_path key
   const mergedJournal = merged.journal as Record<string, unknown> | undefined
@@ -177,11 +244,13 @@ export async function loadConfig(cwd?: string): Promise<Config> {
     project_name: projectName,
     plan: { path: planPath, date_scheme: planScheme },
     journal: { path: journalPath, date_scheme: journalScheme },
+    skills: { path: skillsPath, date_scheme: skillsScheme },
     session,
     context_cap: contextCap,
     superpowers_spec_pattern: (merged.superpowers_spec_pattern as string) || undefined,
     superpowers_plan_pattern: (merged.superpowers_plan_pattern as string) || undefined,
     capture_skills: captureSkills,
+    warnings: warnings.length > 0 ? warnings : undefined,
   }
 }
 

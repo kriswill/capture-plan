@@ -43,7 +43,7 @@ See `docs/obsidian-cli.md` for the full Obsidian CLI command reference, includin
 
 ### Date Directory Schemes
 
-The `date_scheme` setting controls how date segments are formatted in vault paths. Four named schemes are available: `calendar` (default), `compact`, `monthly`, `flat`. Each path (plan and journal) can be configured independently via TOML grouped tables.
+The `date_scheme` setting controls how date segments are formatted in vault paths. Four named schemes are available: `calendar` (default), `compact`, `monthly`, `flat`. Each path (`[plan]`, `[journal]`, `[skills]`) can be configured independently via TOML grouped tables. Exception: `[skills]` inherits its `date_scheme` from `[plan]` when not explicitly set, rather than falling back to the hardcoded default.
 
 ### Config Cascade (highest priority wins)
 
@@ -51,11 +51,18 @@ The `date_scheme` setting controls how date segments are formatted in vault path
 2. User global: `~/.config/capture-plan/config.toml`
 3. Plugin default: `capture-plan.toml` (repo root)
 
-Old flat keys (`plan_path`, `journal_path`) are still accepted for backward compatibility; new `[plan]`/`[journal]` tables take precedence.
+Old flat keys (`plan_path`, `journal_path`, `skills_path`) are still accepted for backward compatibility; new `[plan]`/`[journal]`/`[skills]` tables take precedence.
+
+The `[skills]` table controls where skill-only session notes (`activity.md`) are written:
+- Default path: `Claude/Skills`
+- `date_scheme`: inherits from `[plan]` when omitted — this is the only table with cross-table inheritance; `[plan]` and `[journal]` each fall back to the hardcoded default independently.
+- Flat fallback key: `skills_path`
 
 ### Session State
 
 `<vault>/<plan.path>/<date_scheme_path>/<counter>-<slug>/state.md` bridges the two hooks — written by capture-plan, read by capture-done.
+
+`SessionState.plan_dir` keeps its legacy name but the root it is relative to depends on `source`: `source: "skill"` → relative to `config.skills.path`; any other source → relative to `config.plan.path`.
 
 ### Troubleshooting
 
@@ -65,7 +72,7 @@ If the LSP tool reports diagnostics about missing exports or types that clearly 
 
 This targets only tsserver processes belonging to the current Claude Code process. The LSP respawns on the next request
 
-Debug Logs are written to `/tmp/capture-[plan|done]-debug.log`
+Debug Logs are written to `<os.tmpdir()>/capture-[plan|done]-debug.log` (typically `/tmp/...` on macOS/Linux, `%TEMP%\...` on Windows).
 
 ### Plugin Layout
 

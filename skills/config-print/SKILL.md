@@ -18,6 +18,7 @@ CLAUDE_CWD="$PWD" bun ${CLAUDE_PLUGIN_ROOT}/hooks/print-config.ts
 Parse the JSON output. It contains:
 - `options` — array of objects with `key`, `value`, and `source`
 - `configPaths` — object with `plugin`, `user`, and `project` file paths (resolved for the current platform)
+- `warnings` — optional array of `{ key, table, layer }` entries flagging top-level scalar keys found scoped under a nested table (typically a TOML placement bug — the value is still recovered)
 
 ### 2. Display results
 
@@ -47,3 +48,13 @@ Display as:
 - **Plugin default:** `configPaths.plugin`
 - **User global:** `configPaths.user` (auto-resolved for the current platform)
 - **Project local:** `configPaths.project` (or `(not set)` if outside a project)
+
+### 4. Show warnings (if any)
+
+If `warnings` is present and non-empty, render a `## Warnings` section after the paths. For each entry, display:
+
+```
+- `<key>` found under `[<table>]` in <layer> TOML — value was recovered to top level. Move the key out of the table to silence this warning.
+```
+
+Skip the section entirely when `warnings` is absent or empty.

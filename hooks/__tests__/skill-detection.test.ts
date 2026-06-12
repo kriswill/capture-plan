@@ -8,7 +8,12 @@ import {
   findSkillInvocations,
   transcriptContainsPattern,
 } from "../transcript.ts"
-import { assistantEntry, humanEntry, skillEntry } from "./helpers/transcript-helpers.ts"
+import {
+  assistantEntry,
+  humanEntry,
+  skillEntry,
+  slashCommandEntry,
+} from "./helpers/transcript-helpers.ts"
 
 describe("findSkillInvocations", () => {
   it("returns empty array when no skills used", () => {
@@ -107,6 +112,55 @@ describe("findSkillInvocations", () => {
     const entries: TranscriptEntry[] = [skillEntry("simplify")]
     const result = findSkillInvocations(entries)
     expect(result[0].contextBefore).toBe("")
+  })
+
+  it("detects user-typed slash command (no Skill tool_use)", () => {
+    const entries: TranscriptEntry[] = [
+      slashCommandEntry("code-review", "2931142"),
+      assistantEntry({
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Reviewing CL 2931142." }],
+          usage: { input_tokens: 100, output_tokens: 50 },
+        },
+      }),
+    ]
+    const result = findSkillInvocations(entries)
+    expect(result).toHaveLength(1)
+    expect(result[0].skill).toBe("code-review")
+    expect(result[0].args).toBe("2931142")
+    expect(result[0].index).toBe(0)
+    expect(result[0].contextBefore).toBe("")
+    expect(result[0].contextAfter).toBe("Reviewing CL 2931142.")
+  })
+
+  it("treats empty <command-args> as undefined", () => {
+    const entries: TranscriptEntry[] = [slashCommandEntry("clear", "")]
+    const result = findSkillInvocations(entries)
+    expect(result).toHaveLength(1)
+    expect(result[0].skill).toBe("clear")
+    expect(result[0].args).toBeUndefined()
+  })
+
+  it("does not double-count when slash command and Skill tool_use refer to the same turn", () => {
+    // Defensive: slash command is always in a user entry, Skill tool_use in an assistant entry,
+    // so distinct indices — both should be reported, but never as duplicates at the same index.
+    const entries: TranscriptEntry[] = [slashCommandEntry("simplify"), skillEntry("simplify")]
+    const result = findSkillInvocations(entries)
+    expect(result).toHaveLength(2)
+    expect(result[0].index).toBe(0)
+    expect(result[1].index).toBe(1)
+  })
+
+  it("respects whitelist filtering for slash-command invocations", () => {
+    const entries: TranscriptEntry[] = [
+      slashCommandEntry("code-review", "1234"),
+      slashCommandEntry("clear"),
+    ]
+    const invocations = findSkillInvocations(entries)
+    const filtered = filterSkillInvocations(invocations, ["code-review"])
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].skill).toBe("code-review")
   })
 })
 

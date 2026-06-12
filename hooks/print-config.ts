@@ -2,8 +2,8 @@
 // print-config.ts — Print full plugin configuration with per-option provenance
 
 import { join } from "node:path"
-import { getUserConfigDir } from "./lib/config.ts"
-import { PLUGIN_ROOT } from "./lib/types.ts"
+import { getUserConfigDir, recoverStrayKeysFromLayer } from "./lib/config.ts"
+import { type ConfigLayer, type ConfigWarning, PLUGIN_ROOT } from "./lib/types.ts"
 import { loadToml } from "./shared.ts"
 
 type Layer = Record<string, unknown> | null
@@ -11,7 +11,7 @@ type Layer = Record<string, unknown> | null
 interface ConfigEntry {
   key: string
   value: unknown
-  source: "default" | "plugin" | "user" | "project"
+  source: "default" | ConfigLayer
 }
 
 /** Extract a value from a raw TOML layer, checking grouped table then flat legacy key. */
@@ -53,6 +53,14 @@ const KEYS: KeyDef[] = [
     defaultValue: "Claude/Journal",
   },
   { key: "journal.date_scheme", table: "journal", field: "date_scheme", defaultValue: "calendar" },
+  {
+    key: "skills.path",
+    table: "skills",
+    field: "path",
+    flatKey: "skills_path",
+    defaultValue: "Claude/Skills",
+  },
+  { key: "skills.date_scheme", table: "skills", field: "date_scheme", defaultValue: "calendar" },
   { key: "session.path", table: "session", field: "path", defaultValue: "Claude/Sessions" },
   { key: "session.enabled", table: "session", field: "enabled", defaultValue: false },
   {
@@ -73,14 +81,19 @@ const pluginPath = join(PLUGIN_ROOT, "capture-plan.toml")
 const userPath = join(getUserConfigDir(), "config.toml")
 const projectPath = cwd ? join(cwd, ".claude", "capture-plan.toml") : null
 
-const pluginLayer = await loadToml(pluginPath)
-const userLayer = await loadToml(userPath)
-const projectLayer = projectPath ? await loadToml(projectPath) : null
+const rawPluginLayer = await loadToml(pluginPath)
+const rawUserLayer = await loadToml(userPath)
+const rawProjectLayer = projectPath ? await loadToml(projectPath) : null
 
-const layers: Array<{ name: "plugin" | "user" | "project"; data: Layer }> = [
-  { name: "plugin", data: pluginLayer },
-  { name: "user", data: userLayer },
-  { name: "project", data: projectLayer },
+const pluginR = recoverStrayKeysFromLayer(rawPluginLayer, "plugin")
+const userR = recoverStrayKeysFromLayer(rawUserLayer, "user")
+const projectR = recoverStrayKeysFromLayer(rawProjectLayer, "project")
+const warnings: ConfigWarning[] = [...pluginR.warnings, ...userR.warnings, ...projectR.warnings]
+
+const layers: Array<{ name: ConfigLayer; data: Layer }> = [
+  { name: "plugin", data: pluginR.recovered },
+  { name: "user", data: userR.recovered },
+  { name: "project", data: projectR.recovered },
 ]
 
 const options: ConfigEntry[] = KEYS.map(({ key, table, field, flatKey, defaultValue }) => {
@@ -106,5 +119,6 @@ console.log(
       user: userPath,
       project: projectPath || null,
     },
+    warnings,
   }),
 )

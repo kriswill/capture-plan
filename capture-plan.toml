@@ -16,6 +16,12 @@ date_scheme = "calendar"   # calendar | compact | monthly | flat
 path = "Claude/Journal"
 date_scheme = "calendar"   # calendar | compact | monthly | flat
 
+# Skill activity notes (activity.md produced by skill-only sessions).
+# When omitted, date_scheme inherits from [plan].
+# [skills]
+# path = "Claude/Skills"
+# date_scheme = "calendar"   # calendar | compact | monthly | flat
+
 # Context window cap in tokens (auto-detected, override if needed)
 # Standard: 200000, Max/Enterprise: 1000000
 # context_cap = 1000000

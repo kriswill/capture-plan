@@ -2,6 +2,8 @@
 // capture-plan.ts — Claude Code Hook for ExitPlanMode
 // Captures plans and persists them to Obsidian vault
 
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { PLAN_SYSTEM_PROMPT } from "./lib/prompts.ts"
 import {
   appendEvent,
@@ -49,7 +51,7 @@ import {
   type TranscriptStats,
 } from "./transcript.ts"
 
-const DEBUG_LOG = "/tmp/capture-plan-debug.log"
+const DEBUG_LOG = join(tmpdir(), "capture-plan-debug.log")
 
 interface HookPayload {
   session_id: string
