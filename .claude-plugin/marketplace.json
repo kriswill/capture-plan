@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Captures Claude Code plans and execution summaries to Obsidian",
-    "version": "0.6.2"
+    "version": "0.7.0"
   },
   "plugins": [
     {
       "name": "capture-plan",
       "source": "./",
       "description": "Captures Claude Code plans and execution summaries to an Obsidian vault with daily journal integration",
-      "version": "0.6.2",
+      "version": "0.7.0",
       "author": {
         "name": "kriswill"
       },
