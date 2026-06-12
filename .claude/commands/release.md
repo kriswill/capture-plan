@@ -141,27 +141,33 @@ Using `--notes-file` avoids multi-line shell-escaping headaches with the generat
 > **Workaround for CLI bug** ([anthropics/claude-code#37252](https://github.com/anthropics/claude-code/issues/37252)):
 > `claude plugin update` reads versions from a local git clone without fetching from the remote first.
 
-Pull the latest into the marketplace cache so `claude plugin update` detects the new version immediately:
+Pull the latest into every local marketplace cache so `claude plugin update` detects the new version immediately. The config dir is `${CLAUDE_CONFIG_DIR:-$HOME/.claude}` (the env var is set in session environments and is the official override; there is no CLI command to query the cache path). Split-profile setups (e.g. `~/.claude-me` + `~/.claude-work`) keep separate caches, so also sweep sibling `~/.claude*` profiles best-effort:
 
 ```bash
-if [ -d ~/.claude/plugins/marketplaces/kriswill ]; then
-  cd ~/.claude/plugins/marketplaces/kriswill && git pull origin main
-fi
+for cache in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/marketplaces/kriswill" \
+             "$HOME"/.claude*/plugins/marketplaces/kriswill; do
+  if [ -d "$cache/.git" ]; then
+    git -C "$cache" pull origin main
+  fi
+done
 ```
 
-Skip silently if the directory doesn't exist (e.g., plugin not installed locally).
+Duplicate visits are harmless (second pull is a no-op). Skip silently if no cache exists anywhere (e.g., plugin not installed locally).
 
 ### 8. Confirm
 
 Print the release URL returned by `gh release create`.
 
-Verify the marketplace cache is current:
+Verify each updated marketplace cache is current:
 
 ```bash
-cd ~/.claude/plugins/marketplaces/kriswill && git log --oneline -1
+for cache in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/marketplaces/kriswill" \
+             "$HOME"/.claude*/plugins/marketplaces/kriswill; do
+  [ -d "$cache/.git" ] && echo "$cache: $(git -C "$cache" log --oneline -1)"
+done
 ```
 
-Confirm the latest commit message matches `release: v{VERSION}`.
+Confirm the latest commit message in each matches `release: v{VERSION}`.
 
 ## Sub-procedure: GEN_CHANGELOG(PREV, TARGET, DISPLAY_VERSION)
 
