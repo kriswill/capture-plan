@@ -25,6 +25,21 @@ interface TestSuite {
   children: (TestSuite | TestCase)[]
 }
 
+/** Whole-run statistics from the root <testsuites> element. */
+interface RunStats {
+  tests: number
+  assertions: number
+  failures: number
+  skipped: number
+  timeS: number
+}
+
+/** Parsed JUnit report: per-file suite trees plus whole-run stats. */
+export interface JunitReport {
+  files: TestSuite[]
+  stats: RunStats
+}
+
 /** Decode the XML entities bun's JUnit reporter emits. */
 function decodeEntities(s: string): string {
   return s
@@ -47,15 +62,22 @@ function attr(tag: string, name: string): string | undefined {
  * A stack-based tag scanner is enough: the XML is machine-generated with
  * double-quoted attributes and no mixed content.
  */
-export function parseJunit(xml: string): TestSuite[] {
+export function parseJunit(xml: string): JunitReport {
   const root: TestSuite = { kind: "suite", name: "", children: [] }
   const stack: TestSuite[] = [root]
   let currentCase: TestCase | undefined
+  const stats: RunStats = { tests: 0, assertions: 0, failures: 0, skipped: 0, timeS: 0 }
 
   const tags = xml.matchAll(/<\/?[a-zA-Z][^>]*>/g)
   for (const [tag] of tags) {
     const top = stack[stack.length - 1]
-    if (tag.startsWith("<testsuite ") || tag === "<testsuite>") {
+    if (tag.startsWith("<testsuites")) {
+      stats.tests = Number(attr(tag, "tests") ?? 0)
+      stats.assertions = Number(attr(tag, "assertions") ?? 0)
+      stats.failures = Number(attr(tag, "failures") ?? 0)
+      stats.skipped = Number(attr(tag, "skipped") ?? 0)
+      stats.timeS = Number(attr(tag, "time") ?? 0)
+    } else if (tag.startsWith("<testsuite ") || tag === "<testsuite>") {
       const suite: TestSuite = { kind: "suite", name: attr(tag, "name") ?? "?", children: [] }
       top.children.push(suite)
       if (!tag.endsWith("/>")) stack.push(suite)
@@ -79,7 +101,7 @@ export function parseJunit(xml: string): TestSuite[] {
       currentCase.status = "skip"
     }
   }
-  return root.children.filter((c): c is TestSuite => c.kind === "suite")
+  return { files: root.children.filter((c): c is TestSuite => c.kind === "suite"), stats }
 }
 
 /** Aggregate pass/fail/skip counts for a suite subtree. */
@@ -113,8 +135,28 @@ function renderNode(node: TestSuite | TestCase, depth: number, lines: string[]):
   }
 }
 
-/** Render the full suite tree as collapsible per-file markdown sections. */
-export function renderSummary(files: TestSuite[]): string {
+/**
+ * Render the bun CLI summary block (pass/skip/fail counts, expect() calls,
+ * total run line) as a diff-highlighted code fence: `+` lines render green
+ * and `-` lines red in GitHub's markdown.
+ */
+function renderCliSummary(stats: RunStats, fileCount: number): string[] {
+  const pass = stats.tests - stats.failures - stats.skipped
+  return [
+    "```diff",
+    `+ ${pass} pass`,
+    ...(stats.skipped > 0 ? [`  ${stats.skipped} skip`] : []),
+    `${stats.failures > 0 ? "-" : " "} ${stats.failures} fail`,
+    `  ${stats.assertions} expect() calls`,
+    `Ran ${stats.tests} tests across ${fileCount} file${fileCount === 1 ? "" : "s"}. [${stats.timeS.toFixed(2)}s]`,
+    "```",
+    "",
+  ]
+}
+
+/** Render the full report as a CLI-style summary plus collapsible per-file sections. */
+export function renderSummary(report: JunitReport): string {
+  const { files, stats } = report
   const lines: string[] = []
   const grand = { pass: 0, fail: 0, skip: 0 }
 
@@ -145,7 +187,7 @@ export function renderSummary(files: TestSuite[]): string {
     grand.fail > 0
       ? `### ❌ ${grand.fail} of ${total} tests failed`
       : `### ✅ ${grand.pass} tests passed${grand.skip > 0 ? ` (${grand.skip} skipped)` : ""}`
-  return [headline, "", ...lines, ""].join("\n")
+  return [headline, "", ...renderCliSummary(stats, files.length), ...lines, ""].join("\n")
 }
 
 if (import.meta.main) {
