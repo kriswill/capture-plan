@@ -89,7 +89,7 @@ Analogous to `buildSuperpowersState()`. Steps:
    their concrete outcomes.
    Line 2: 1-2 lowercase kebab-case tags (comma-separated, no # prefix).
    ```
-6. **Create directory**: `<plan_path>/YYYY/MM-DD/NNN-<slug>/`
+6. **Create directory**: `<skills.path>/<date_scheme_path>/NNN-<slug>/` — skill-only sessions land under `config.skills.path`, not `config.plan.path`.
 7. **Write activity.md**: Primary note with frontmatter and skill activity
 8. **Journal entry**: Append to daily journal
 9. **Return SessionState**: With `source: "skill"`, `skill_name: <primary>`
@@ -99,7 +99,7 @@ Analogous to `buildSuperpowersState()`. Steps:
 ### Directory layout (skill-only session)
 
 ```
-Claude/Plans/2026/04-03/003-simplify-capture-plan/
+Claude/Skills/2026/04-03/001-simplify-capture-plan/
 ├── activity.md      # Primary note (AI-generated title, skill context)
 ├── summary.md       # Execution summary (files changed, outcomes)
 ├── tools-stats.md   # Token stats, tool usage, duration
@@ -150,6 +150,12 @@ When a session has both a plan AND skill invocations:
 
 The existing execution summary flow handles the plan. The new skill detection adds companion notes without disrupting it.
 
+### Path separation
+
+- **Skill-only sessions** → notes written under `config.skills.path` (default `Claude/Skills`). Skill counters are scoped to this root and are independent from plan counters.
+- **Mixed sessions** (plan mode + skill invocation) → per-skill companion notes remain inside the plan's `plan_dir` (under `config.plan.path`), so summary wikilinks continue to resolve correctly. This behavior is unchanged.
+- **Counters are per-root**: incrementing a skill counter does not affect the plan counter and vice versa.
+
 ## Files to Modify
 
 | File | Change |
@@ -182,11 +188,12 @@ The existing execution summary flow handles the plan. The new skill detection ad
 1. Run `/simplify` in a session on this repo
 2. End the session (Stop hook fires)
 3. Check Obsidian vault for:
-   - `activity.md` with AI-generated title and skill context
+   - `activity.md` under `config.skills.path` (e.g. `Claude/Skills/…`) — **not** under `Claude/Plans`
+   - Path built via `getSkillDatePath()` using the `[skills]` config table
    - `summary.md` with files changed
    - `tools-stats.md` and `tools-log.md` with full stats
    - Journal entry linking to the activity note
-4. Run a mixed session (plan + /simplify) and verify both plan.md and simplify.md appear in the same directory
+4. Run a mixed session (plan + /simplify) and verify both `plan.md` and `simplify.md` appear in the same directory under `config.plan.path`
 
 ## Out of Scope
 

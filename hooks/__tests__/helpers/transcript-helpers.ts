@@ -77,6 +77,21 @@ export function skillEntry(
   }
 }
 
+/** Factory for a user-typed slash command entry (e.g. `/code-review 2931142`). */
+export function slashCommandEntry(
+  skill: string,
+  args = "",
+  overrides: Partial<TranscriptEntry> = {},
+): TranscriptEntry {
+  const content = `<command-name>/${skill}</command-name>\n            <command-message>${skill}</command-message>\n            <command-args>${args}</command-args>`
+  return {
+    type: "user",
+    timestamp: "2026-03-30T14:01:00.000Z",
+    message: { role: "user", content },
+    ...overrides,
+  }
+}
+
 /** Factory for building human transcript entries in tests. */
 export function humanEntry(
   overrides: Partial<TranscriptEntry> & {

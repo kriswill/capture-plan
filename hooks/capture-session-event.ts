@@ -3,6 +3,8 @@
 // Handles: UserPromptSubmit, EnterPlanMode, SubagentStart, SubagentStop, PreCompact, PostCompact
 
 import { writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   appendEvent,
   type Config,
@@ -18,7 +20,7 @@ import {
   upsertSessionDoc,
 } from "./shared.ts"
 
-const DEBUG_LOG = "/tmp/capture-plan-debug.log"
+const DEBUG_LOG = join(tmpdir(), "capture-plan-debug.log")
 
 /** Hard ceiling on prompt text to prevent pathological payloads. */
 const PROMPT_HARD_CEILING = 10_000

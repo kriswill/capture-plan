@@ -1,10 +1,11 @@
 // session-state.ts — Session state persistence and plan frontmatter parsing
 
 import type { TranscriptStats } from "../transcript.ts"
+import type { DateScheme } from "./dates.ts"
 import { formatDatePath, getDatePartsFor } from "./dates.ts"
 import { createVaultNote, listVaultFolders, readVaultNote, runObsidian } from "./obsidian.ts"
 import { ensureMdExt } from "./text.ts"
-import type { Config, ContextHint, PlanFrontmatter, SessionState } from "./types.ts"
+import type { Config, ContextHint, PathConfig, PlanFrontmatter, SessionState } from "./types.ts"
 
 const STALE_STATE_MS = 2 * 60 * 60 * 1000 // 2 hours
 
@@ -121,12 +122,33 @@ export function resolveVaultState(
   return scanForVaultState(sessionId, config)
 }
 
-/** Scan today's and yesterday's plan directories for a matching session state file. */
+/** Return the vault root paths to scan for session state files (plan and skills). */
+function stateRoots(config: Config): PathConfig[] {
+  return [config.plan, config.skills]
+}
+
+/**
+ * Yield each unique `${root.path}/${dateSeg}` folder for plan and skills roots across
+ * today and yesterday. Dedupes when plan and skills resolve to the same date folder
+ * so we don't list/read each state.md twice.
+ */
+function* uniqueStateDateFolders(config: Config): Generator<string> {
+  const seen = new Set<string>()
+  for (const root of stateRoots(config)) {
+    for (const dateSeg of recentDateSegmentsFor(root.date_scheme)) {
+      const dateFolder = `${root.path}/${dateSeg}`
+      if (seen.has(dateFolder)) continue
+      seen.add(dateFolder)
+      yield dateFolder
+    }
+  }
+}
+
+/** Scan today's and yesterday's plan and skills directories for a matching session state file. */
 export function scanForVaultState(sessionId: string, config: Config): SessionState | null {
   let match: SessionState | null = null
 
-  for (const dateSeg of recentDateSegments(config)) {
-    const dateFolder = `${config.plan.path}/${dateSeg}`
+  for (const dateFolder of uniqueStateDateFolders(config)) {
     const planDirs = listVaultFolders(dateFolder, config.vault)
 
     for (const dirName of planDirs) {
@@ -150,10 +172,9 @@ export function scanForVaultState(sessionId: string, config: Config): SessionSta
   return match
 }
 
-/** Delete stale (>2h) uncompleted state files from today's and yesterday's plan directories. */
+/** Delete stale (>2h) uncompleted state files from today's and yesterday's plan and skills directories. */
 export function cleanupStaleStates(config: Config): void {
-  for (const dateSeg of recentDateSegments(config)) {
-    const dateFolder = `${config.plan.path}/${dateSeg}`
+  for (const dateFolder of uniqueStateDateFolders(config)) {
     const planDirs = listVaultFolders(dateFolder, config.vault)
 
     for (const dirName of planDirs) {
@@ -172,13 +193,13 @@ export function cleanupStaleStates(config: Config): void {
   }
 }
 
-/** Return date path segments for today and yesterday (covers midnight crossover). */
-function recentDateSegments(config: Config): string[] {
+/** Return date path segments for today and yesterday (covers midnight crossover) using the given scheme. */
+function recentDateSegmentsFor(scheme: DateScheme): string[] {
   const today = new Date()
   const yesterday = new Date(today.getTime() - 86_400_000)
   return [today, yesterday].map((d) => {
     const parts = getDatePartsFor(d)
-    return formatDatePath(config.plan.date_scheme, parts)
+    return formatDatePath(scheme, parts)
   })
 }
 

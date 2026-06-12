@@ -245,6 +245,62 @@ function buildTranscript(_sessionId: string, planContent: string): string {
         ],
       },
     },
+    // Skill invocation — mixed session (plan + skill)
+    {
+      type: "assistant",
+      timestamp: ts(244_000),
+      model: "claude-sonnet-4-20250514",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Now I'll simplify the helper before running the edits — let me invoke the simplify skill.",
+          },
+          {
+            type: "tool_use",
+            name: "Skill",
+            id: "tu_skill",
+            input: { skill: "simplify" },
+          },
+        ],
+        usage: {
+          input_tokens: 2100,
+          output_tokens: 120,
+          cache_read_input_tokens: 1200,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    },
+    {
+      type: "human",
+      timestamp: ts(243_000),
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu_skill",
+            content: "Skill simplify completed successfully.",
+          },
+        ],
+      },
+    },
+    {
+      type: "assistant",
+      timestamp: ts(242_000),
+      model: "claude-sonnet-4-20250514",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Skill complete. Continuing with the edits." }],
+        usage: {
+          input_tokens: 2200,
+          output_tokens: 80,
+          cache_read_input_tokens: 1300,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    },
     {
       type: "assistant",
       timestamp: ts(200_000),
@@ -437,8 +493,8 @@ function buildTranscript(_sessionId: string, planContent: string): string {
 
 // ---- Debug Log Monitoring ----
 
-const CAPTURE_PLAN_LOG = "/tmp/capture-plan-debug.log"
-const CAPTURE_DONE_LOG = "/tmp/capture-done-debug.log"
+const CAPTURE_PLAN_LOG = join(tmpdir(), "capture-plan-debug.log")
+const CAPTURE_DONE_LOG = join(tmpdir(), "capture-done-debug.log")
 
 /** Error patterns to detect in debug logs and stderr. */
 const ERROR_PATTERNS = [
@@ -803,6 +859,36 @@ async function main(): Promise<void> {
       summaryContent.includes("## Files Changed"),
     )
     record("capture-done", "summary.md lists widget.ts", summaryContent.includes("widget.ts"))
+  }
+
+  // Validate per-skill note (mixed session: plan + simplify skill)
+  const skillNoteFile = join(planDirAbsolute, "simplify.md")
+  const skillNoteExists = existsSync(skillNoteFile)
+  record(
+    "per-skill",
+    "simplify.md exists",
+    skillNoteExists,
+    skillNoteExists ? skillNoteFile : "not found",
+  )
+
+  if (skillNoteExists) {
+    const skillNoteContent = readFileSync(skillNoteFile, "utf8")
+    record(
+      "per-skill",
+      "simplify.md frontmatter links to plan",
+      skillNoteContent.includes(`[[${planDir}/plan|`),
+    )
+    record(
+      "per-skill",
+      "simplify.md body includes skill name",
+      skillNoteContent.includes("simplify"),
+    )
+    record(
+      "per-skill",
+      "simplify.md body includes context",
+      skillNoteContent.includes("simplify the helper") ||
+        skillNoteContent.includes("Skill complete"),
+    )
   }
 
   // Validate tools-stats.md
