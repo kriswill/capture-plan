@@ -115,7 +115,35 @@ export interface ContextHint {
   plan_dir?: string
   /** BASES_VERSION that was last synced to the vault this session (skips redundant re-sync). */
   bases_synced?: number
+  /** Vault-relative directory of the skill-activity capture already consumed this session (re-capture reuses it). */
+  captured_skill_dir?: string
+  /** Count of filtered skill invocations included in the last consumed capture — Stop exits early unless new ones appear. */
+  captured_skill_count?: number
+  /** Original activity note title — reused on re-capture so journal callout grouping survives Haiku title drift. */
+  captured_skill_title?: string
+  /** Vault-relative directory of the superpowers plan capture already consumed this session. */
+  captured_sp_dir?: string
+  /** Count of superpowers spec/plan writes included in the last consumed capture. */
+  captured_sp_count?: number
+  /** Original superpowers plan title — reused on re-capture for callout grouping. */
+  captured_sp_title?: string
 }
+
+/** Keys of ContextHint that downstream hooks may patch after SessionStart. */
+export type ContextHintPatch = Partial<
+  Pick<
+    ContextHint,
+    | "plan_dir"
+    | "session_doc_path"
+    | "bases_synced"
+    | "captured_skill_dir"
+    | "captured_skill_count"
+    | "captured_skill_title"
+    | "captured_sp_dir"
+    | "captured_sp_count"
+    | "captured_sp_title"
+  >
+>
 
 /** A subagent prompt to be written as a separate note in the vault. */
 export interface AgentFileEntry {

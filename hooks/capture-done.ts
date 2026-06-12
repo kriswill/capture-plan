@@ -10,9 +10,13 @@ import { IS_DEV_MODE, isDevSessionInPluginRepo, PLUGIN_ROOT } from "./lib/types.
 import {
   appendEvent,
   appendOrCreateCallout,
+  buildCaptureWatermark,
+  type CaptureReuse,
   type Config,
+  type ContextHintPatch,
   createVaultNote,
   debugLog,
+  decideRecapture,
   deleteVaultState,
   detectCcVersion,
   durationSeconds,
@@ -48,8 +52,8 @@ import {
   stripTitleLine,
   summarizeWithClaude,
   toSlug,
-  updateContextHint,
   updateJournalFrontmatter,
+  upsertContextHint,
   upsertSessionDoc,
   writeVaultState,
 } from "./shared.ts"
@@ -86,14 +90,17 @@ interface StopPayload {
   [key: string]: unknown
 }
 
-/** Build a SessionState on the fly for a superpowers session, creating the plan vault note. */
-async function buildSuperpowersState(
+/** Build a SessionState on the fly for a superpowers session, creating the plan vault note.
+ *  When `reuse` is set (re-capture after new writes in an already-captured session), the
+ *  prior directory and title are kept and notes are regenerated in place. */
+export async function buildSuperpowersState(
   sessionId: string,
   writes: SuperpowersWrite[],
   entries: TranscriptEntry[],
   payload: StopPayload,
   config: Config,
   sessionDocPath?: string,
+  reuse?: CaptureReuse,
 ): Promise<{ state: SessionState; boundaryIdx: number } | null> {
   // Pick primary: prefer plan over spec
   const plans = writes.filter((w) => w.type === "plan")
@@ -103,16 +110,16 @@ async function buildSuperpowersState(
   const planContent = primary.content
   if (!planContent || planContent.length < 20) return null
 
-  const title = extractTitle(planContent)
+  const title = reuse?.title ?? extractTitle(planContent)
   const slug = toSlug(title)
   const dateParts = getDateParts()
   const { dateKey, datetime, ampmTime } = dateParts
   const dateDirRelative = getPlanDatePath(config, dateParts)
 
-  const counter = nextCounter(dateDirRelative, config.vault)
-
   const { summary, tags: newTags } = await summarizeWithClaude(planContent, PLAN_SYSTEM_PROMPT)
-  const planDir = `${dateDirRelative}/${padCounter(counter)}-${slug}`
+  const planDir =
+    reuse?.planDir ??
+    `${dateDirRelative}/${padCounter(nextCounter(dateDirRelative, config.vault))}-${slug}`
   const planPath = `${planDir}/plan`
   const journalPath = getJournalPath(config)
   const project = getProjectName(payload.cwd, config.project_name)
@@ -205,11 +212,13 @@ ${stripTitleLine(spec.content)}
     config.vault,
   )
 
-  updateJournalFrontmatter(
-    journalPath,
-    { date: dateKey, day: getDayName(), project, tags: newTags },
-    config.vault,
-  )
+  if (!reuse) {
+    updateJournalFrontmatter(
+      journalPath,
+      { date: dateKey, day: getDayName(), project, tags: newTags },
+      config.vault,
+    )
+  }
 
   const state: SessionState = {
     session_id: sessionId,
@@ -233,14 +242,17 @@ ${stripTitleLine(spec.content)}
   return { state, boundaryIdx }
 }
 
-/** Build a SessionState on the fly for a skill-only session, creating the activity vault note. */
-async function buildSkillState(
+/** Build a SessionState on the fly for a skill-only session, creating the activity vault note.
+ *  When `reuse` is set (re-capture after new invocations in an already-captured session), the
+ *  prior directory and title are kept and notes are regenerated in place. */
+export async function buildSkillState(
   sessionId: string,
   invocations: SkillInvocation[],
   entries: TranscriptEntry[],
   payload: StopPayload,
   config: Config,
   sessionDocPath?: string,
+  reuse?: CaptureReuse,
 ): Promise<{ state: SessionState; boundaryIdx: number } | null> {
   if (invocations.length === 0) return null
 
@@ -258,17 +270,19 @@ async function buildSkillState(
   // Summarize with Haiku to get title and tags
   const { summary, tags: newTags } = await summarizeWithClaude(narrative, SKILL_SYSTEM_PROMPT)
 
-  // Use Haiku summary as title, truncated to first sentence or 80 chars
+  // Use Haiku summary as title, truncated to first sentence or 80 chars.
+  // On re-capture the original title wins (Haiku output drifts between runs).
   const rawTitle = extractTitle(summary) || `${invocations[0].skill} session`
-  const title = rawTitle.length > 80 ? `${rawTitle.slice(0, 77)}...` : rawTitle
+  const generatedTitle = rawTitle.length > 80 ? `${rawTitle.slice(0, 77)}...` : rawTitle
+  const title = reuse?.title ?? generatedTitle
   const slug = toSlug(title)
   const dateParts = getDateParts()
   const { dateKey, datetime, ampmTime } = dateParts
   const dateDirRelative = getSkillDatePath(config, dateParts)
 
-  const counter = nextCounter(dateDirRelative, config.vault)
-
-  const planDir = `${dateDirRelative}/${padCounter(counter)}-${slug}`
+  const planDir =
+    reuse?.planDir ??
+    `${dateDirRelative}/${padCounter(nextCounter(dateDirRelative, config.vault))}-${slug}`
   const activityPath = `${planDir}/activity`
   const journalPath = getJournalPath(config)
   const project = getProjectName(payload.cwd, config.project_name)
@@ -386,11 +400,13 @@ ${contextText || "_No context captured_"}
     config.vault,
   )
 
-  updateJournalFrontmatter(
-    journalPath,
-    { date: dateKey, day: getDayName(), project, tags: newTags },
-    config.vault,
-  )
+  if (!reuse) {
+    updateJournalFrontmatter(
+      journalPath,
+      { date: dateKey, day: getDayName(), project, tags: newTags },
+      config.vault,
+    )
+  }
 
   const state: SessionState = {
     session_id: sessionId,
@@ -460,10 +476,38 @@ async function main(): Promise<void> {
       })
     }
 
-    /** Delete the vault state file and clear the plan_dir hint so subsequent stops skip the vault scan. */
-    const consumeVaultState = (planDir: string): void => {
+    /** Delete the vault state file, clear the plan_dir hint, and record the re-capture
+     *  watermark so later Stops in this session skip (nothing new) or reuse the same
+     *  directory (new activity). Lazily creates the hint file so the watermark is never
+     *  dropped. */
+    const consumeVaultState = (planDir: string, watermark?: ContextHintPatch): void => {
       deleteVaultState(planDir, config.vault)
-      updateContextHint(sessionId, { plan_dir: undefined })
+      upsertContextHint(
+        sessionId,
+        { plan_dir: undefined, ...watermark },
+        { session_enabled: config.session.enabled ?? false },
+      )
+    }
+
+    /** Build the per-cycle stop-event text (duration/turns/tools since the last user prompt). */
+    const buildCycleStopText = (cycleEntries: TranscriptEntry[]): string | undefined => {
+      const cycleStart = findLastUserPromptIndex(cycleEntries)
+      let cycleTurns = 0
+      for (let i = cycleStart; i < cycleEntries.length; i++) {
+        if (cycleEntries[i].type === "assistant" && !cycleEntries[i].isSidechain) cycleTurns++
+      }
+      let cycleStats: TranscriptStats | null = null
+      try {
+        cycleStats = collectTranscriptStats(cycleEntries, cycleStart)
+      } catch {
+        /* ignore */
+      }
+      return formatStopText({
+        durationMs: cycleStats?.durationMs,
+        turns: cycleTurns,
+        totalToolCalls: cycleStats?.totalToolCalls,
+        mcpServerCount: cycleStats?.mcpServers.length,
+      })
     }
 
     // Find transcript early — needed for both plan-mode and superpowers paths
@@ -480,6 +524,7 @@ async function main(): Promise<void> {
     let boundaryIdx = -1
     let entries: TranscriptEntry[] = []
     let isSuperpowers = false
+    let spWriteCount = 0
 
     if (state) {
       debugLog(`Found state for session ${sessionId}: ${state.plan_title}\n`, DEBUG_LOG)
@@ -500,6 +545,7 @@ async function main(): Promise<void> {
           config.superpowers_spec_pattern,
           config.superpowers_plan_pattern,
         )
+        spWriteCount = spWrites.length
         boundaryIdx = findSuperpowersBoundary(spWrites)
       } else if (state.source === "skill") {
         // State was written by skill capture — find boundary from skill invocations
@@ -534,24 +580,7 @@ async function main(): Promise<void> {
       if (!hasSuperpowers && !hasSkills) {
         // Compute per-cycle stats for the stop event
         const cycleEntries = parseTranscriptFromString(rawTranscript)
-        const cycleStart = findLastUserPromptIndex(cycleEntries)
-        let cycleTurns = 0
-        for (let i = cycleStart; i < cycleEntries.length; i++) {
-          if (cycleEntries[i].type === "assistant" && !cycleEntries[i].isSidechain) cycleTurns++
-        }
-        let cycleStats: TranscriptStats | null = null
-        try {
-          cycleStats = collectTranscriptStats(cycleEntries, cycleStart)
-        } catch {
-          /* ignore */
-        }
-        const stopText = formatStopText({
-          durationMs: cycleStats?.durationMs,
-          turns: cycleTurns,
-          totalToolCalls: cycleStats?.totalToolCalls,
-          mcpServerCount: cycleStats?.mcpServers.length,
-        })
-        flushEvents({ text: stopText, message: lastMessage })
+        flushEvents({ text: buildCycleStopText(cycleEntries), message: lastMessage })
         process.exit(0)
       }
 
@@ -565,25 +594,40 @@ async function main(): Promise<void> {
         }
 
         if (spWrites.length > 0) {
-          isSuperpowers = true
-          debugLog(`Superpowers session detected: ${spWrites.length} spec/plan writes\n`, DEBUG_LOG)
+          spWriteCount = spWrites.length
+          const spDecision = decideRecapture("superpowers", spWrites.length, mainHint)
+          if (spDecision.action === "skip") {
+            // Already captured and nothing new — fall through so the skill guard below
+            // (or the final no-state exit) decides whether anything else is new.
+            debugLog(
+              `Superpowers writes already captured (${spWrites.length} <= watermark), skipping rebuild\n`,
+              DEBUG_LOG,
+            )
+          } else {
+            isSuperpowers = true
+            debugLog(
+              `Superpowers session detected: ${spWrites.length} spec/plan writes\n`,
+              DEBUG_LOG,
+            )
 
-          const result = await buildSuperpowersState(
-            sessionId,
-            spWrites,
-            entries,
-            payload,
-            config,
-            cachedSessionDocPath,
-          )
-          if (!result) {
-            debugLog("Failed to build superpowers state\n", DEBUG_LOG)
-            flushEvents({ message: lastMessage })
-            process.exit(0)
+            const result = await buildSuperpowersState(
+              sessionId,
+              spWrites,
+              entries,
+              payload,
+              config,
+              cachedSessionDocPath,
+              spDecision.reuse,
+            )
+            if (!result) {
+              debugLog("Failed to build superpowers state\n", DEBUG_LOG)
+              flushEvents({ message: lastMessage })
+              process.exit(0)
+            }
+
+            state = result.state
+            boundaryIdx = result.boundaryIdx
           }
-
-          state = result.state
-          boundaryIdx = result.boundaryIdx
         }
       }
 
@@ -599,8 +643,16 @@ async function main(): Promise<void> {
           findSkillInvocations(entries),
           config.capture_skills,
         )
-        if (skillInvocations.length === 0) {
-          flushEvents({ message: lastMessage })
+        // Guard against per-turn re-capture: the transcript is cumulative, so every Stop
+        // after a consumed capture re-detects the same invocations. Skip when nothing is
+        // new; reuse the original directory when new invocations have appeared.
+        const skillDecision = decideRecapture("skill", skillInvocations.length, mainHint)
+        if (skillDecision.action === "skip") {
+          debugLog(
+            `Skill invocations already captured (${skillInvocations.length} <= watermark), exiting\n`,
+            DEBUG_LOG,
+          )
+          flushEvents({ text: buildCycleStopText(entries), message: lastMessage })
           process.exit(0)
         }
 
@@ -616,6 +668,7 @@ async function main(): Promise<void> {
           payload,
           config,
           cachedSessionDocPath,
+          skillDecision.reuse,
         )
         if (!result) {
           debugLog("Failed to build skill state\n", DEBUG_LOG)
@@ -633,6 +686,11 @@ async function main(): Promise<void> {
       }
     }
 
+    // Detect skill invocations once — reused for mixed-session notes, stop stats, and watermarks.
+    // The watermark stores the *filtered* count because the re-capture guard compares filtered counts.
+    const skillInvocations = findSkillInvocations(entries)
+    const skillCaptureCount = filterSkillInvocations(skillInvocations, config.capture_skills).length
+
     // Check for execution activity after the planning boundary
     if (!hasExecutionAfter(entries, boundaryIdx) && state.source !== "skill") {
       debugLog("No execution tools after plan boundary, waiting for next Stop\n", DEBUG_LOG)
@@ -642,8 +700,9 @@ async function main(): Promise<void> {
         process.exit(0)
       }
       // Superpowers: still capture the plan note even without execution
-      // (state was already created with vault note in buildSuperpowersState)
-      consumeVaultState(state.plan_dir)
+      // (state was already created with vault note in buildSuperpowersState).
+      // skillCount 0: no per-skill notes were written, so the skill guard stays open.
+      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, spWriteCount, 0))
       flushEvents({ message: lastMessage })
       process.exit(0)
     }
@@ -771,13 +830,12 @@ ${fileList}
         `Failed to create summary note: stdout=${createResult.stdout} stderr=${createResult.stderr}\n`,
         DEBUG_LOG,
       )
-      consumeVaultState(state.plan_dir)
+      // skillCount 0 keeps dir+title but leaves the count guard open: the next Stop
+      // re-captures into the same directory and retries the summary (self-healing).
+      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, spWriteCount, 0))
       flushEvents({ message: lastMessage })
       process.exit(0)
     }
-
-    // Detect skill invocations once — reused for mixed-session notes and stop stats
-    const skillInvocations = findSkillInvocations(entries)
 
     // Create per-skill activity notes for mixed sessions (plan + skills)
     if (state.source !== "skill" && skillInvocations.length > 0) {
@@ -968,8 +1026,8 @@ ${contextText || "_No context captured_"}
       events: pendingEvents,
     })
 
-    // Clean up session state from vault
-    consumeVaultState(state.plan_dir)
+    // Clean up session state from vault and record the re-capture watermark
+    consumeVaultState(state.plan_dir, buildCaptureWatermark(state, spWriteCount, skillCaptureCount))
 
     console.error(`Done summary captured -> ${summaryPath}.md`)
     debugLog(`Summary captured for ${state.plan_title}\n`, DEBUG_LOG)
@@ -982,4 +1040,4 @@ ${contextText || "_No context captured_"}
   process.exit(0)
 }
 
-main()
+if (import.meta.main) main()

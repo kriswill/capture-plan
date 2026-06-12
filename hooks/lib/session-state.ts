@@ -5,7 +5,14 @@ import type { DateScheme } from "./dates.ts"
 import { formatDatePath, getDatePartsFor } from "./dates.ts"
 import { createVaultNote, listVaultFolders, readVaultNote, runObsidian } from "./obsidian.ts"
 import { ensureMdExt } from "./text.ts"
-import type { Config, ContextHint, PathConfig, PlanFrontmatter, SessionState } from "./types.ts"
+import type {
+  Config,
+  ContextHint,
+  ContextHintPatch,
+  PathConfig,
+  PlanFrontmatter,
+  SessionState,
+} from "./types.ts"
 
 const STALE_STATE_MS = 2 * 60 * 60 * 1000 // 2 hours
 
@@ -211,6 +218,71 @@ export function deleteVaultState(planDir: string, vault?: string): void {
 /** Mark a state.md as completed by rewriting it with the completed flag set. */
 export function markVaultStateCompleted(state: SessionState, vault?: string): boolean {
   return writeVaultState({ ...state, completed: true }, vault)
+}
+
+/** Prior capture coordinates enabling in-place re-capture into the same vault directory. */
+export interface CaptureReuse {
+  /** Vault-relative plan/activity directory allocated by the first capture this session. */
+  planDir: string
+  /** Original note title (keeps journal callout grouping and links stable across Haiku title drift). */
+  title?: string
+}
+
+/** Stop pre-check verdict: skip (nothing new since the last consumed capture) or capture, optionally reusing the prior directory. */
+export type RecaptureDecision = { action: "skip" } | { action: "capture"; reuse?: CaptureReuse }
+
+/**
+ * Compare the cumulative count of detected source signals (filtered skill invocations or
+ * superpowers writes) against the watermark recorded in the context hint when the last
+ * capture was consumed. A count of 0 always skips, subsuming the empty-invocations exit.
+ *
+ * Known limitation: if compaction starts a new transcript file, detected counts can drop
+ * below the watermark and post-compact activity below it is skipped (accepted — rare, and
+ * bounded to one session).
+ */
+export function decideRecapture(
+  source: "skill" | "superpowers",
+  detectedCount: number,
+  hint: ContextHint | null,
+): RecaptureDecision {
+  const capturedCount =
+    (source === "skill" ? hint?.captured_skill_count : hint?.captured_sp_count) ?? 0
+  if (detectedCount <= capturedCount) return { action: "skip" }
+  const planDir = source === "skill" ? hint?.captured_skill_dir : hint?.captured_sp_dir
+  const title = source === "skill" ? hint?.captured_skill_title : hint?.captured_sp_title
+  return { action: "capture", reuse: planDir ? { planDir, title } : undefined }
+}
+
+/**
+ * Build the context-hint watermark patch recorded when a capture is consumed.
+ *
+ * Skill-source states record dir/title/count so a later Stop with new invocations
+ * re-captures into the same directory. Superpowers states record their own triplet.
+ * Mixed sessions (plan-mode/superpowers transcripts that also contain skills) record
+ * the skill count WITHOUT a dir: the guard skips when nothing is new, but genuinely
+ * new skill activity allocates its own directory rather than reusing the plan dir
+ * (the main flow would otherwise overwrite the plan's summary with a skill summary).
+ */
+export function buildCaptureWatermark(
+  state: SessionState,
+  spWriteCount: number,
+  skillCount: number,
+): ContextHintPatch {
+  if (state.source === "skill") {
+    return {
+      captured_skill_dir: state.plan_dir,
+      captured_skill_count: skillCount,
+      captured_skill_title: state.plan_title,
+    }
+  }
+  const patch: ContextHintPatch = {}
+  if (state.source === "superpowers") {
+    patch.captured_sp_dir = state.plan_dir
+    patch.captured_sp_count = spWriteCount
+    patch.captured_sp_title = state.plan_title
+  }
+  if (skillCount > 0) patch.captured_skill_count = skillCount
+  return patch
 }
 
 /** Extract structured fields (created, tags, counter, etc.) from a plan note's YAML frontmatter. */

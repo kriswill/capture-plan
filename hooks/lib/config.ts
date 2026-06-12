@@ -11,6 +11,7 @@ import {
   type ConfigLayer,
   type ConfigWarning,
   type ContextHint,
+  type ContextHintPatch,
   type ContextHintResult,
   PLUGIN_ROOT,
   type SessionConfig,
@@ -418,10 +419,7 @@ const CONFIG_DEBUG_LOG = join(tmpdir(), "capture-config-debug.log")
  * without a stdin payload and no lazy bootstrap has fired yet), the patch is
  * silently dropped — a debug line is logged so the failure mode is observable.
  */
-export function updateContextHint(
-  sessionId: string,
-  patch: Partial<Pick<ContextHint, "plan_dir" | "session_doc_path" | "bases_synced">>,
-): void {
+export function updateContextHint(sessionId: string, patch: ContextHintPatch): void {
   const hint = readContextHintFull(sessionId)
   if (!hint) {
     debugLog(
@@ -431,6 +429,44 @@ export function updateContextHint(
     return
   }
   writeFileSync(contextHintPath(sessionId), JSON.stringify({ ...hint, ...patch }))
+}
+
+/**
+ * Merge a patch into the context hint, lazily creating a minimal hint file when it is
+ * missing (mirrors capture-session-event's lazy-init) so the patch is never silently
+ * dropped. Used for re-capture watermarks, which must survive even when SessionStart
+ * never wrote a hint.
+ */
+export function upsertContextHint(
+  sessionId: string,
+  patch: ContextHintPatch,
+  init: { session_enabled: boolean; source?: string },
+): void {
+  const base: ContextHint = readContextHintFull(sessionId) ?? {
+    session_id: sessionId,
+    source: init.source ?? "stop-bootstrap",
+    session_enabled: init.session_enabled,
+  }
+  writeFileSync(contextHintPath(sessionId), JSON.stringify({ ...base, ...patch }))
+}
+
+/**
+ * Carry re-capture watermark fields from a prior hint into a freshly built SessionStart
+ * hint. SessionStart re-fires on resume/compact and rewrites the hint wholesale; without
+ * this, watermarks would be erased and consumed captures would duplicate again.
+ */
+export function mergePriorWatermarks(hint: ContextHint, prior: ContextHint | null): ContextHint {
+  if (!prior) return hint
+  const merged: ContextHint = { ...hint }
+  if (prior.captured_skill_dir !== undefined) merged.captured_skill_dir = prior.captured_skill_dir
+  if (prior.captured_skill_count !== undefined)
+    merged.captured_skill_count = prior.captured_skill_count
+  if (prior.captured_skill_title !== undefined)
+    merged.captured_skill_title = prior.captured_skill_title
+  if (prior.captured_sp_dir !== undefined) merged.captured_sp_dir = prior.captured_sp_dir
+  if (prior.captured_sp_count !== undefined) merged.captured_sp_count = prior.captured_sp_count
+  if (prior.captured_sp_title !== undefined) merged.captured_sp_title = prior.captured_sp_title
+  return merged
 }
 
 /** Parse Claude Code version from `claude --version` output (e.g. "2.1.89 (Claude Code)"). */
