@@ -1,5 +1,6 @@
 ---
 description: "Use when the user wants to release a new version of the capture-plan plugin. Bumps version numbers, commits, tags, pushes, and creates a GitHub release. Also supports `rewrite` to regenerate the body of an existing release."
+argument-hint: "[major|minor|patch|rewrite]"
 ---
 
 # Release
