@@ -778,7 +778,9 @@ export function findSuperpowersWrites(
       const titleMatch = content.match(/^#\s+(.+)/m)
       const title = titleMatch
         ? titleMatch[1].trim()
-        : (filePath.split("/").pop() ?? "").replace(/\.md$/, "").replace(/^\d{4}-\d{2}-\d{2}-/, "")
+        : (filePath.split(/[/\\]/).pop() ?? "")
+            .replace(/\.md$/, "")
+            .replace(/^\d{4}-\d{2}-\d{2}-/, "")
       results.push({ index: i, type, filePath, title, content })
     }
   }

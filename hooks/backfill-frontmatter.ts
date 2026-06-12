@@ -13,11 +13,12 @@
 // in-flight writes finish, and a re-run skips notes that are already at the
 // current standard, picking up exactly where the previous run left off.
 
-import { cpus } from "node:os"
+import { cpus, tmpdir } from "node:os"
+import { join } from "node:path"
 import { type PendingUpgrade, scanVault } from "./lib/backfill-scan.ts"
 import { debugLog, formatDuration, getVaultPath, loadConfig, runObsidianAsync } from "./shared.ts"
 
-const DEBUG_LOG = "/tmp/capture-backfill-debug.log"
+const DEBUG_LOG = join(tmpdir(), "capture-backfill-debug.log")
 const PROGRESS_EVERY = 100
 
 interface CliOptions {

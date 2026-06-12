@@ -695,9 +695,8 @@ async function main(): Promise<void> {
   // ---- Phase 0: Setup ----
   console.log("Preflight")
 
-  // Check obsidian CLI
-  const obsCheck = Bun.spawnSync(["which", "obsidian"], { stdout: "pipe", stderr: "pipe" })
-  const obsAvailable = obsCheck.exitCode === 0
+  // Check obsidian CLI (Bun.which is cross-platform; `which` does not exist on Windows)
+  const obsAvailable = Bun.which("obsidian") !== null
   record("preflight", "obsidian CLI available", obsAvailable)
   if (!obsAvailable) {
     console.log("\nFatal: obsidian CLI not found. Install it to run the e2e test.")
