@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   test:
@@ -32,12 +31,9 @@ jobs:
 
       - name: Run tests
         run: bun test --reporter=junit --reporter-outfile=test-results.xml
+        env:
+          FORCE_COLOR: "1"
 
       - name: Test summary
-        uses: mikepenz/action-junit-report@v6
         if: ${{ !cancelled() }}
-        with:
-          report_paths: test-results.xml
-          check_name: results (${{ matrix.os }})
-          detailed_summary: true
-          include_passed: true
+        run: bun scripts/junit-summary.ts test-results.xml
