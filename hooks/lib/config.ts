@@ -441,12 +441,13 @@ export function updateContextHint(sessionId: string, patch: ContextHintPatch): v
 export function upsertContextHint(
   sessionId: string,
   patch: ContextHintPatch,
-  init: { session_enabled: boolean; source?: string },
+  init: { session_enabled: boolean; source?: string; cc_version?: string },
 ): void {
   const base: ContextHint = readContextHintFull(sessionId) ?? {
     session_id: sessionId,
     source: init.source ?? "stop-bootstrap",
     session_enabled: init.session_enabled,
+    cc_version: init.cc_version,
   }
   writeFileSync(contextHintPath(sessionId), JSON.stringify({ ...base, ...patch }))
 }

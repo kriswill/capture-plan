@@ -52,6 +52,7 @@ import {
   stripTitleLine,
   summarizeWithClaude,
   toSlug,
+  updateContextHint,
   updateJournalFrontmatter,
   upsertContextHint,
   upsertSessionDoc,
@@ -240,6 +241,9 @@ ${stripTitleLine(spec.content)}
   }
 
   writeVaultState(state, config.vault)
+  // Cache the dir in the hint so a kept state (summary pending) resolves via the
+  // single-read fast path on later Stops instead of a full vault scan per turn.
+  updateContextHint(sessionId, { plan_dir: planDir })
   debugLog(`Superpowers state built: ${title} -> ${planPath}\n`, DEBUG_LOG)
   return { state, boundaryIdx }
 }
@@ -429,6 +433,9 @@ ${contextText || "_No context captured_"}
   }
 
   writeVaultState(state, config.vault)
+  // Cache the dir in the hint so a kept state (summary pending) resolves via the
+  // single-read fast path on later Stops instead of a full vault scan per turn.
+  updateContextHint(sessionId, { plan_dir: planDir })
   debugLog(`Skill state built: ${title} -> ${activityPath}\n`, DEBUG_LOG)
   return { state, boundaryIdx }
 }
@@ -481,9 +488,11 @@ async function main(): Promise<void> {
 
     /** Delete the vault state file, clear the plan_dir hint, and record the re-capture
      *  watermark so later Stops in this session skip (nothing new) or reuse the same
-     *  directory (new activity). Lazily creates the hint file so the watermark is never
-     *  dropped. */
-    const consumeVaultState = (planDir: string, watermark?: ContextHintPatch): void => {
+     *  directory (new activity). Called ONLY after a fully successful capture (summary
+     *  written) — every incomplete path keeps state.md as the durable retry marker
+     *  instead, so the watermark counts always describe fully summarized work. Lazily
+     *  creates the hint file so the watermark is never dropped. */
+    const consumeVaultState = (planDir: string, watermark: ContextHintPatch): void => {
       deleteVaultState(planDir, config.vault)
       upsertContextHint(
         sessionId,
@@ -526,7 +535,6 @@ async function main(): Promise<void> {
     let state: SessionState | null = resolveVaultState(sessionId, mainHint, config)
     let boundaryIdx = -1
     let entries: TranscriptEntry[] = []
-    let isSuperpowers = false
     let spWriteCount = 0
 
     // findSkillInvocations scans the whole transcript and three call sites need the
@@ -550,7 +558,6 @@ async function main(): Promise<void> {
 
       if (state.source === "superpowers") {
         // State was written by a prior superpowers capture — find boundary from transcript
-        isSuperpowers = true
         const spWrites = findSuperpowersWrites(
           entries,
           config.superpowers_spec_pattern,
@@ -562,6 +569,13 @@ async function main(): Promise<void> {
         // State was written by skill capture — find boundary from skill invocations
         const skillInvs = getSkillInvocations()
         boundaryIdx = skillInvs.length > 0 ? skillInvs[0].index : -1
+        // Mixed skill + superpowers: the skill summary narrates the whole transcript,
+        // so the consume must close the superpowers rebuild guard too.
+        spWriteCount = findSuperpowersWrites(
+          entries,
+          config.superpowers_spec_pattern,
+          config.superpowers_plan_pattern,
+        ).length
       } else {
         boundaryIdx = findExitPlanIndex(entries)
         // Mixed plan-mode + superpowers: count spec/plan writes so the consume
@@ -576,11 +590,10 @@ async function main(): Promise<void> {
       }
 
       if (boundaryIdx === -1) {
-        debugLog("No plan boundary found in transcript\n", DEBUG_LOG)
-        // Counts 0: nothing was summarized this Stop, but dir+title must survive so
-        // a later Stop (e.g. post-compact activity re-introducing signals) re-captures
-        // into the same directory instead of allocating a new one.
-        consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
+        // Keep state.md: nothing can complete this Stop (post-compact transcripts may
+        // have lost the boundary), but if the signals reappear the state completes
+        // normally into its own directory. Bounded by cleanupStaleStates (2h).
+        debugLog("No plan boundary found in transcript, keeping state for retry\n", DEBUG_LOG)
         flushEvents({ message: lastMessage })
         process.exit(0)
       }
@@ -627,7 +640,6 @@ async function main(): Promise<void> {
               DEBUG_LOG,
             )
           } else {
-            isSuperpowers = true
             debugLog(
               `Superpowers session detected: ${spWrites.length} spec/plan writes\n`,
               DEBUG_LOG,
@@ -724,19 +736,14 @@ async function main(): Promise<void> {
 
     // Check for execution activity after the planning boundary
     if (!hasExecutionAfter(entries, boundaryIdx) && state.source !== "skill") {
-      debugLog("No execution tools after plan boundary, waiting for next Stop\n", DEBUG_LOG)
-      if (!isSuperpowers) {
-        // For plan-mode, keep state for retry. For superpowers, state is ephemeral.
-        flushEvents({ message: lastMessage })
-        process.exit(0)
-      }
-      // Superpowers: still capture the plan note even without execution
-      // (state was already created with vault note in buildSuperpowersState).
-      // Both counts 0: the summary hasn't been written yet, so the guard must stay
-      // open — a later Stop with execution re-captures into the same dir (via the
-      // recorded dir+title) and writes the summary. Recording the full spWriteCount
-      // here would skip that Stop and silently lose the execution summary.
-      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
+      // Keep state.md for ALL sources — it is the durable "summary pending" marker.
+      // The next Stop resolves it (skipping the rebuild path entirely, so idle turns
+      // cost a state read, not a Haiku call or vault write) and either writes the
+      // summary once execution has happened or exits again. For superpowers the plan
+      // note is already captured; consuming here with a count-0 watermark instead
+      // would either lose the execution summary (full count) or rebuild the capture
+      // on every idle turn (open guard). Bounded by cleanupStaleStates (2h).
+      debugLog("No execution tools after plan boundary, keeping state for next Stop\n", DEBUG_LOG)
       flushEvents({ message: lastMessage })
       process.exit(0)
     }
@@ -864,11 +871,10 @@ ${fileList}
         `Failed to create summary note: stdout=${createResult.stdout} stderr=${createResult.stderr}\n`,
         DEBUG_LOG,
       )
-      // Both counts 0 keep dir+title but leave the count guard open: the next Stop
-      // re-captures into the same directory and retries the summary (self-healing).
-      // This must hold for superpowers states too — recording spWriteCount here
-      // would permanently close the guard and the summary would never be retried.
-      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
+      // Keep state.md: the next Stop resolves it and retries the summary into the
+      // same directory — for every source, including plan-mode, which has no rebuild
+      // path and would otherwise permanently lack its summary. Bounded by
+      // cleanupStaleStates (2h).
       flushEvents({ message: lastMessage })
       process.exit(0)
     }

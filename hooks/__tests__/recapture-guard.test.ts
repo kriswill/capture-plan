@@ -150,24 +150,41 @@ describe("buildCaptureWatermark", () => {
     expect(patch.captured_skill_count).toBeUndefined()
   })
 
-  it("superpowers consume-without-summary keeps dir+title with count 0 (guard stays open)", () => {
-    // Contract for the no-execution and summary-create-failure consume sites:
-    // recording the full spWriteCount there would skip every later Stop and
-    // silently lose the execution summary.
-    const state = makeState({ source: "superpowers", plan_dir: SP_DIR, plan_title: "SP Plan" })
-    const patch = buildCaptureWatermark(state, 0, 0)
+  it("skill source covering superpowers writes closes the sp rebuild guard (count-only)", () => {
+    // The skill summary narrates the whole transcript; sp writes it covered must not
+    // be rebuilt as a separate plan note by a later Stop.
+    const state = makeState({ source: "skill" })
+    const patch = buildCaptureWatermark(state, 2, 3)
     expect(patch).toEqual({
-      captured_sp_dir: SP_DIR,
-      captured_sp_count: 0,
-      captured_sp_title: "SP Plan",
+      captured_skill_dir: SKILL_DIR,
+      captured_skill_count: 3,
+      captured_skill_title: "Orig Title",
+      captured_sp_count: 2,
     })
+    expect(patch.captured_sp_dir).toBeUndefined()
+    expect(decideRecapture("superpowers", 2, makeHint(patch))).toEqual({ action: "skip" })
+  })
 
-    // A later Stop that re-detects the same writes must re-capture into the same dir
-    const hint = makeHint(patch)
-    expect(decideRecapture("superpowers", 1, hint)).toEqual({
-      action: "capture",
-      reuse: { planDir: SP_DIR, title: "SP Plan" },
+  it("setting the skill offset seals any earlier skill dir/title (explicit undefined)", () => {
+    // A reuse re-capture sliced from the new offset would otherwise overwrite the old
+    // dir's activity note with only the post-offset invocations.
+    const state = makeState({ source: undefined })
+    const patch = buildCaptureWatermark(state, 0, 4)
+    expect("captured_skill_dir" in patch).toBe(true)
+    expect(patch.captured_skill_dir).toBeUndefined()
+    expect("captured_skill_title" in patch).toBe(true)
+    expect(patch.captured_skill_title).toBeUndefined()
+
+    // After the merge clears dir+title, a new invocation gets a FRESH dir, not the old one
+    const hint = makeHint({
+      captured_skill_dir: SKILL_DIR,
+      captured_skill_title: "Old Dir Title",
+      captured_skill_count: 4,
+      captured_skill_offset: 4,
     })
+    // simulate the JSON round-trip dropping the cleared keys
+    const merged = JSON.parse(JSON.stringify({ ...hint, ...patch })) as typeof hint
+    expect(decideRecapture("skill", 5, merged)).toEqual({ action: "capture", reuse: undefined })
   })
 
   it("plan-mode source records nothing without skills", () => {

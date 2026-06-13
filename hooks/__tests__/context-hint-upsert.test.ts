@@ -67,6 +67,36 @@ describe("upsertContextHint", () => {
     expect(hint?.plan_dir).toBeUndefined()
   })
 
+  it("explicit-undefined watermark keys clear through the file round-trip (dir seal)", () => {
+    const sessionId = trackSession(`upsert-seal-${process.pid}`)
+    seedHint(sessionId, {
+      session_id: sessionId,
+      source: "startup",
+      session_enabled: false,
+      captured_skill_dir: SKILL_DIR,
+      captured_skill_title: "Old Dir Title",
+      captured_skill_count: 2,
+    })
+
+    // The mixed-consume seal: raise count+offset, clear dir+title
+    upsertContextHint(
+      sessionId,
+      {
+        captured_skill_count: 4,
+        captured_skill_offset: 4,
+        captured_skill_dir: undefined,
+        captured_skill_title: undefined,
+      },
+      { session_enabled: false },
+    )
+
+    const hint = readContextHintFull(sessionId)
+    expect(hint?.captured_skill_count).toBe(4)
+    expect(hint?.captured_skill_offset).toBe(4)
+    expect(hint?.captured_skill_dir).toBeUndefined()
+    expect(hint?.captured_skill_title).toBeUndefined()
+  })
+
   it("bootstraps a minimal hint file when none exists (watermark never dropped)", () => {
     const sessionId = trackSession(`upsert-bootstrap-${process.pid}`)
     expect(readContextHintFull(sessionId)).toBeNull()

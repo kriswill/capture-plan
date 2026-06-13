@@ -215,11 +215,6 @@ export function deleteVaultState(planDir: string, vault?: string): void {
   runObsidian(["delete", `path=${planDir}/state.md`, "permanent"], vault)
 }
 
-/** Mark a state.md as completed by rewriting it with the completed flag set. */
-export function markVaultStateCompleted(state: SessionState, vault?: string): boolean {
-  return writeVaultState({ ...state, completed: true }, vault)
-}
-
 /** Prior capture coordinates enabling in-place re-capture into the same vault directory. */
 export interface CaptureReuse {
   /** Vault-relative plan/activity directory allocated by the first capture this session. */
@@ -259,13 +254,19 @@ export function decideRecapture(
 
 /**
  * Build the context-hint watermark patch recorded when a capture is consumed.
+ * Consumption happens only after a fully successful capture (summary written);
+ * incomplete captures keep their state.md as the retry marker instead, so the
+ * counts here always describe fully summarized work.
  *
  * Skill-source states record dir/title/count so a later Stop with new invocations
- * re-captures into the same directory. Superpowers states record their own triplet.
- * Mixed sessions record the other source's count WITHOUT a dir: a plan-mode capture
- * whose transcript also contains skills (or superpowers writes) closes that guard,
- * but genuinely new activity allocates its own directory rather than reusing the
- * plan dir (the main flow would otherwise overwrite the plan's notes).
+ * re-captures into the same directory; their summary narrates the whole transcript,
+ * so any superpowers writes it covered close the sp rebuild guard too (count-only).
+ * Superpowers states record their own triplet. Mixed sessions record the other
+ * source's count WITHOUT a dir: genuinely new activity allocates its own directory
+ * rather than reusing this capture's dir (the main flow would otherwise overwrite
+ * its notes). Setting the skill offset also SEALS any earlier skill dir/title — a
+ * reuse re-capture sliced from the new offset would otherwise overwrite that dir's
+ * activity note with only the post-offset invocations, destroying its record.
  */
 export function buildCaptureWatermark(
   state: SessionState,
@@ -273,11 +274,13 @@ export function buildCaptureWatermark(
   skillCount: number,
 ): ContextHintPatch {
   if (state.source === "skill") {
-    return {
+    const patch: ContextHintPatch = {
       captured_skill_dir: state.plan_dir,
       captured_skill_count: skillCount,
       captured_skill_title: state.plan_title,
     }
+    if (spWriteCount > 0) patch.captured_sp_count = spWriteCount
+    return patch
   }
   const patch: ContextHintPatch = {}
   if (state.source === "superpowers") {
@@ -292,6 +295,10 @@ export function buildCaptureWatermark(
     // These invocations were captured as per-skill notes in THIS capture's dir; a
     // follow-up skill-only capture must start after them, not re-emit them.
     patch.captured_skill_offset = skillCount
+    // Seal the previous skill dir: its coverage ends before the new offset, so it
+    // must never be paired with it (explicit undefined clears the keys on merge).
+    patch.captured_skill_dir = undefined
+    patch.captured_skill_title = undefined
   }
   return patch
 }

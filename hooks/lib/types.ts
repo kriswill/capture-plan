@@ -135,7 +135,15 @@ export interface ContextHint {
 
 /** ContextHint keys forming the re-capture watermark. Single source of truth:
  *  mergePriorWatermarks carries exactly these across SessionStart rewrites, and
- *  ContextHintPatch derives its patchable watermark keys from this list. */
+ *  ContextHintPatch derives its patchable watermark keys from this list.
+ *
+ *  Durability decision: watermarks deliberately live in the volatile tmpdir hint,
+ *  not the vault. They only deduplicate FULLY captured work (losing one costs at
+ *  most one duplicate directory), while INCOMPLETE captures are protected by the
+ *  durable vault state.md, which is kept — never consumed — until the summary is
+ *  written. A vault-side watermark (a completed state.md per capture) was
+ *  considered and rejected: it would leave a permanent state file in every
+ *  capture directory the user browses. */
 export const WATERMARK_KEYS = [
   "captured_skill_dir",
   "captured_skill_count",
