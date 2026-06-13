@@ -2,13 +2,11 @@
 // capture-session-event.ts — Unified handler for session lifecycle hooks
 // Handles: UserPromptSubmit, EnterPlanMode, SubagentStart, SubagentStop, PreCompact, PostCompact
 
-import { writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   appendEvent,
   type Config,
-  contextHintPath,
   createSessionDoc,
   debugLog,
   detectCcVersion,
@@ -17,6 +15,7 @@ import {
   loadConfig,
   readAndClearEvents,
   readContextHintFull,
+  upsertContextHint,
   upsertSessionDoc,
 } from "./shared.ts"
 
@@ -53,13 +52,18 @@ async function main(): Promise<void> {
     if (!hint) {
       const enabled = config.session.enabled ?? false
       const ccVersion = detectCcVersion()
-      hint = {
+      const init = { session_enabled: enabled, source: "lazy-init", cc_version: ccVersion }
+      // Merge instead of wholesale write: detectCcVersion spawns a subprocess between
+      // the null-read above and this write, and a concurrent Stop hook (or a torn read
+      // of a hint mid-write) could otherwise be clobbered here — the same bug class as
+      // the post-createSessionDoc write below.
+      upsertContextHint(sessionId, {}, init)
+      hint = readContextHintFull(sessionId) ?? {
         session_id: sessionId,
         session_enabled: enabled,
         cc_version: ccVersion,
         source: "lazy-init",
       }
-      writeFileSync(contextHintPath(sessionId), JSON.stringify(hint))
       debugLog(`SessionEvent: lazy-init hint for ${sessionId} enabled=${enabled}\n`, DEBUG_LOG)
 
       if (enabled) {
@@ -75,7 +79,11 @@ async function main(): Promise<void> {
         })
         if (sessionDocPath) {
           hint.session_doc_path = sessionDocPath
-          writeFileSync(contextHintPath(sessionId), JSON.stringify(hint))
+          // Merge instead of wholesale rewrite: createSessionDoc spends seconds in the
+          // Obsidian CLI, and a Stop hook may have written re-capture watermarks into
+          // the hint in that window — rewriting the stale in-memory copy would erase
+          // them and resurrect the duplicate-directory bug.
+          upsertContextHint(sessionId, { session_doc_path: sessionDocPath }, init)
         }
         debugLog(`SessionEvent: lazy-init created session doc for ${sessionId}\n`, DEBUG_LOG)
       }

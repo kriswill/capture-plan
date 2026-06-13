@@ -115,7 +115,52 @@ export interface ContextHint {
   plan_dir?: string
   /** BASES_VERSION that was last synced to the vault this session (skips redundant re-sync). */
   bases_synced?: number
+  /** Vault-relative directory of the skill-activity capture already consumed this session (re-capture reuses it). */
+  captured_skill_dir?: string
+  /** Count of filtered skill invocations included in the last consumed capture — Stop exits early unless new ones appear. */
+  captured_skill_count?: number
+  /** Original activity note title — reused on re-capture so journal callout grouping survives Haiku title drift. */
+  captured_skill_title?: string
+  /** Index into the filtered invocation list where the current activity capture starts.
+   *  Set when a mixed-session capture consumes invocations into the plan dir, so a
+   *  follow-up skill-only capture contains only the invocations after it. */
+  captured_skill_offset?: number
+  /** Vault-relative directory of the superpowers plan capture already consumed this session. */
+  captured_sp_dir?: string
+  /** Count of superpowers spec/plan writes included in the last consumed capture. */
+  captured_sp_count?: number
+  /** Original superpowers plan title — reused on re-capture for callout grouping. */
+  captured_sp_title?: string
 }
+
+/** ContextHint keys forming the re-capture watermark. Single source of truth:
+ *  mergePriorWatermarks carries exactly these across SessionStart rewrites, and
+ *  ContextHintPatch derives its patchable watermark keys from this list.
+ *
+ *  Durability decision: watermarks deliberately live in the volatile tmpdir hint,
+ *  not the vault. They only deduplicate FULLY captured work (losing one costs at
+ *  most one duplicate directory), while INCOMPLETE captures are protected by the
+ *  durable vault state.md, which is kept — never consumed — until the summary is
+ *  written. A vault-side watermark (a completed state.md per capture) was
+ *  considered and rejected: it would leave a permanent state file in every
+ *  capture directory the user browses. */
+export const WATERMARK_KEYS = [
+  "captured_skill_dir",
+  "captured_skill_count",
+  "captured_skill_title",
+  "captured_skill_offset",
+  "captured_sp_dir",
+  "captured_sp_count",
+  "captured_sp_title",
+] as const satisfies readonly (keyof ContextHint)[]
+
+/** Keys of ContextHint that downstream hooks may patch after SessionStart. */
+export type ContextHintPatch = Partial<
+  Pick<
+    ContextHint,
+    "plan_dir" | "session_doc_path" | "bases_synced" | (typeof WATERMARK_KEYS)[number]
+  >
+>
 
 /** A subagent prompt to be written as a separate note in the vault. */
 export interface AgentFileEntry {

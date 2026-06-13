@@ -8,7 +8,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createSessionDoc } from "./lib/session-doc.ts"
 
-import { PLUGIN_ROOT } from "./lib/types.ts"
+import { type ContextHint, PLUGIN_ROOT } from "./lib/types.ts"
 import {
   BASES_VERSION,
   contextHintPath,
@@ -17,7 +17,9 @@ import {
   getProjectName,
   isFirstBasesInstall,
   loadConfig,
+  mergePriorWatermarks,
   parseModelContextCap,
+  readContextHintFull,
   syncBases,
 } from "./shared.ts"
 
@@ -90,15 +92,20 @@ async function main(): Promise<void> {
     const ccVersion = detectCcVersion()
     debugLog(`SessionStart cc_version=${ccVersion ?? "unknown"}\n`, DEBUG_LOG)
 
-    const hint: ContextHint = {
-      session_id: sessionId,
-      context_cap: contextCap,
-      model: payload?.model,
-      cc_version: ccVersion,
-      source: payload?.source ?? "unknown",
-      session_enabled: sessionEnabled,
-      transcript_path: payload?.transcript_path,
-    }
+    // SessionStart re-fires on resume/compact and rewrites the hint wholesale —
+    // carry forward the re-capture watermarks or consumed captures would duplicate.
+    const hint: ContextHint = mergePriorWatermarks(
+      {
+        session_id: sessionId,
+        context_cap: contextCap,
+        model: payload?.model,
+        cc_version: ccVersion,
+        source: payload?.source ?? "unknown",
+        session_enabled: sessionEnabled,
+        transcript_path: payload?.transcript_path,
+      },
+      readContextHintFull(sessionId),
+    )
 
     const hintFile = contextHintPath(sessionId)
     writeFileSync(hintFile, JSON.stringify(hint))

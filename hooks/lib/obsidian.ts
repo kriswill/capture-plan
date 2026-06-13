@@ -259,11 +259,16 @@ export interface JournalFrontmatterProps {
   tags: string
 }
 
-/** Set or update frontmatter properties on the daily journal note (date, day, plans count, projects list, tags). */
+/** Set or update frontmatter properties on the daily journal note (date, day, plans count,
+ *  projects list, tags). All properties are idempotent except the plans counter; pass
+ *  `incrementPlans: false` on re-captures so an already-counted capture isn't counted again
+ *  while the journal (possibly a new day's, created bare by a callout append) still gets
+ *  its type/date/day/projects/tags. */
 export function updateJournalFrontmatter(
   journalPath: string,
   props: JournalFrontmatterProps,
   vault?: string,
+  opts?: { incrementPlans?: boolean },
 ): void {
   if (!journalPath) return
 
@@ -273,9 +278,11 @@ export function updateJournalFrontmatter(
   setVaultProperty(journalPath, "day", props.day, "text", vault)
 
   // plans: read current count, increment by 1
-  const plansRaw = readVaultProperty(journalPath, "plans", vault)
-  const currentPlans = parseInt(plansRaw ?? "", 10) || 0
-  setVaultProperty(journalPath, "plans", `${currentPlans + 1}`, "number", vault)
+  if (opts?.incrementPlans !== false) {
+    const plansRaw = readVaultProperty(journalPath, "plans", vault)
+    const currentPlans = parseInt(plansRaw ?? "", 10) || 0
+    setVaultProperty(journalPath, "plans", `${currentPlans + 1}`, "number", vault)
+  }
 
   // projects: read current list, add project if not present
   if (props.project) {
