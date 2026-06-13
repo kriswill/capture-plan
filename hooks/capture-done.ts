@@ -553,6 +553,15 @@ async function main(): Promise<void> {
         boundaryIdx = skillInvocations.length > 0 ? skillInvocations[0].index : -1
       } else {
         boundaryIdx = findExitPlanIndex(entries)
+        // Mixed plan-mode + superpowers: count spec/plan writes so the consume
+        // watermark closes the superpowers rebuild guard — otherwise the next Stop
+        // re-detects the writes and builds a duplicate superpowers directory
+        // re-covering the already-summarized work.
+        spWriteCount = findSuperpowersWrites(
+          entries,
+          config.superpowers_spec_pattern,
+          config.superpowers_plan_pattern,
+        ).length
       }
 
       if (boundaryIdx === -1) {

@@ -181,4 +181,28 @@ describe("buildCaptureWatermark", () => {
     expect(patch.captured_skill_dir).toBeUndefined()
     expect(patch.captured_skill_title).toBeUndefined()
   })
+
+  it("plan-mode source with superpowers writes records a count-only sp guard (no dir)", () => {
+    const state = makeState({ source: undefined })
+    const patch = buildCaptureWatermark(state, 2, 0)
+    expect(patch).toEqual({ captured_sp_count: 2 })
+    expect(patch.captured_sp_dir).toBeUndefined()
+    expect(patch.captured_sp_title).toBeUndefined()
+
+    // Next Stop re-detecting the same writes must skip, not rebuild a duplicate dir
+    expect(decideRecapture("superpowers", 2, makeHint(patch))).toEqual({ action: "skip" })
+    // Genuinely new writes capture into a FRESH dir (no reuse of the plan dir)
+    expect(decideRecapture("superpowers", 3, makeHint(patch))).toEqual({
+      action: "capture",
+      reuse: undefined,
+    })
+  })
+
+  it("plan-mode source with both skills and superpowers writes records both count-only guards", () => {
+    const state = makeState({ source: undefined })
+    expect(buildCaptureWatermark(state, 2, 3)).toEqual({
+      captured_sp_count: 2,
+      captured_skill_count: 3,
+    })
+  })
 })

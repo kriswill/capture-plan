@@ -258,10 +258,10 @@ export function decideRecapture(
  *
  * Skill-source states record dir/title/count so a later Stop with new invocations
  * re-captures into the same directory. Superpowers states record their own triplet.
- * Mixed sessions (plan-mode/superpowers transcripts that also contain skills) record
- * the skill count WITHOUT a dir: the guard skips when nothing is new, but genuinely
- * new skill activity allocates its own directory rather than reusing the plan dir
- * (the main flow would otherwise overwrite the plan's summary with a skill summary).
+ * Mixed sessions record the other source's count WITHOUT a dir: a plan-mode capture
+ * whose transcript also contains skills (or superpowers writes) closes that guard,
+ * but genuinely new activity allocates its own directory rather than reusing the
+ * plan dir (the main flow would otherwise overwrite the plan's notes).
  */
 export function buildCaptureWatermark(
   state: SessionState,
@@ -280,6 +280,8 @@ export function buildCaptureWatermark(
     patch.captured_sp_dir = state.plan_dir
     patch.captured_sp_count = spWriteCount
     patch.captured_sp_title = state.plan_title
+  } else if (spWriteCount > 0) {
+    patch.captured_sp_count = spWriteCount
   }
   if (skillCount > 0) patch.captured_skill_count = skillCount
   return patch
