@@ -143,8 +143,12 @@ describe("buildSkillState — directory allocation", () => {
     expect(stateCreates.length).toBe(1)
     expect(stateCreates[0]).toContain(`path=${reuse.planDir}/state`)
 
-    // re-capture must not re-increment the journal's plans counter inside the builder
+    // re-capture must not re-increment the journal's plans counter inside the builder...
     expect(calls.some((c) => c.includes("property:set") && c.includes("name=plans"))).toBe(false)
+    // ...but the idempotent journal properties still run (a re-capture crossing midnight
+    // may have just created a bare new day's journal via the callout append)
+    expect(calls.some((c) => c.includes("property:set") && c.includes("name=date"))).toBe(true)
+    expect(calls.some((c) => c.includes("property:set") && c.includes("name=day"))).toBe(true)
   })
 })
 
@@ -191,5 +195,6 @@ describe("buildSuperpowersState — directory allocation", () => {
     expect(contentOf(planCreates[0])).toContain("# Orig SP Plan")
 
     expect(calls.some((c) => c.includes("property:set") && c.includes("name=plans"))).toBe(false)
+    expect(calls.some((c) => c.includes("property:set") && c.includes("name=date"))).toBe(true)
   })
 })

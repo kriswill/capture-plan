@@ -212,13 +212,15 @@ ${stripTitleLine(spec.content)}
     config.vault,
   )
 
-  if (!reuse) {
-    updateJournalFrontmatter(
-      journalPath,
-      { date: dateKey, day: getDayName(), project, tags: newTags },
-      config.vault,
-    )
-  }
+  // Idempotent properties always run — a re-capture that crosses midnight may have
+  // just created a bare new day's journal via the callout append. Only the plans
+  // counter is gated: this capture was already counted when its dir was created.
+  updateJournalFrontmatter(
+    journalPath,
+    { date: dateKey, day: getDayName(), project, tags: newTags },
+    config.vault,
+    { incrementPlans: !reuse },
+  )
 
   const state: SessionState = {
     session_id: sessionId,
@@ -400,13 +402,14 @@ ${contextText || "_No context captured_"}
     config.vault,
   )
 
-  if (!reuse) {
-    updateJournalFrontmatter(
-      journalPath,
-      { date: dateKey, day: getDayName(), project, tags: newTags },
-      config.vault,
-    )
-  }
+  // Idempotent properties always run (see buildSuperpowersState); only the plans
+  // counter is gated on re-capture.
+  updateJournalFrontmatter(
+    journalPath,
+    { date: dateKey, day: getDayName(), project, tags: newTags },
+    config.vault,
+    { incrementPlans: !reuse },
+  )
 
   const state: SessionState = {
     session_id: sessionId,
@@ -526,6 +529,14 @@ async function main(): Promise<void> {
     let isSuperpowers = false
     let spWriteCount = 0
 
+    // findSkillInvocations scans the whole transcript and three call sites need the
+    // same result — compute it lazily, once per run, after `entries` is populated.
+    let skillInvocationsCache: SkillInvocation[] | null = null
+    const getSkillInvocations = (): SkillInvocation[] => {
+      skillInvocationsCache ??= findSkillInvocations(entries)
+      return skillInvocationsCache
+    }
+
     if (state) {
       debugLog(`Found state for session ${sessionId}: ${state.plan_title}\n`, DEBUG_LOG)
 
@@ -549,8 +560,8 @@ async function main(): Promise<void> {
         boundaryIdx = findSuperpowersBoundary(spWrites)
       } else if (state.source === "skill") {
         // State was written by skill capture — find boundary from skill invocations
-        const skillInvocations = findSkillInvocations(entries)
-        boundaryIdx = skillInvocations.length > 0 ? skillInvocations[0].index : -1
+        const skillInvs = getSkillInvocations()
+        boundaryIdx = skillInvs.length > 0 ? skillInvs[0].index : -1
       } else {
         boundaryIdx = findExitPlanIndex(entries)
         // Mixed plan-mode + superpowers: count spec/plan writes so the consume
@@ -566,7 +577,10 @@ async function main(): Promise<void> {
 
       if (boundaryIdx === -1) {
         debugLog("No plan boundary found in transcript\n", DEBUG_LOG)
-        consumeVaultState(state.plan_dir)
+        // Counts 0: nothing was summarized this Stop, but dir+title must survive so
+        // a later Stop (e.g. post-compact activity re-introducing signals) re-captures
+        // into the same directory instead of allocating a new one.
+        consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
         flushEvents({ message: lastMessage })
         process.exit(0)
       }
@@ -598,7 +612,7 @@ async function main(): Promise<void> {
       if (hasSuperpowers) {
         const spWrites = findSuperpowersWrites(entries, specPat, planPat)
         if (spWrites.length === 0 && !hasSkills) {
-          flushEvents({ message: lastMessage })
+          flushEvents({ text: buildCycleStopText(entries), message: lastMessage })
           process.exit(0)
         }
 
@@ -649,7 +663,7 @@ async function main(): Promise<void> {
         }
 
         const skillInvocations = filterSkillInvocations(
-          findSkillInvocations(entries),
+          getSkillInvocations(),
           config.capture_skills,
         )
         // Guard against per-turn re-capture: the transcript is cumulative, so every Stop
@@ -665,14 +679,20 @@ async function main(): Promise<void> {
           process.exit(0)
         }
 
+        // The capture covers invocations from the watermark offset onward: a follow-up
+        // after a mixed session must not re-emit invocations already noted as per-skill
+        // notes in the plan dir, and a reuse re-capture regenerates exactly the
+        // invocations belonging to its own directory.
+        const captureInvocations = skillInvocations.slice(mainHint?.captured_skill_offset ?? 0)
+
         debugLog(
-          `Skill session detected: ${skillInvocations.map((s) => s.skill).join(", ")}\n`,
+          `Skill session detected: ${captureInvocations.map((s) => s.skill).join(", ")}\n`,
           DEBUG_LOG,
         )
 
         const result = await buildSkillState(
           sessionId,
-          skillInvocations,
+          captureInvocations,
           entries,
           payload,
           config,
@@ -690,14 +710,16 @@ async function main(): Promise<void> {
       }
 
       if (!state) {
-        flushEvents({ message: lastMessage })
+        // Reached on the guard-skip fall-through (nothing new since the last capture)
+        // and when detected superpowers patterns yield no buildable state.
+        flushEvents({ text: buildCycleStopText(entries), message: lastMessage })
         process.exit(0)
       }
     }
 
     // Detect skill invocations once — reused for mixed-session notes, stop stats, and watermarks.
     // The watermark stores the *filtered* count because the re-capture guard compares filtered counts.
-    const skillInvocations = findSkillInvocations(entries)
+    const skillInvocations = getSkillInvocations()
     const skillCaptureCount = filterSkillInvocations(skillInvocations, config.capture_skills).length
 
     // Check for execution activity after the planning boundary

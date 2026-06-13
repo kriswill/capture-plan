@@ -15,6 +15,7 @@ import {
   type ContextHintResult,
   PLUGIN_ROOT,
   type SessionConfig,
+  WATERMARK_KEYS,
 } from "./types.ts"
 
 /**
@@ -450,6 +451,16 @@ export function upsertContextHint(
   writeFileSync(contextHintPath(sessionId), JSON.stringify({ ...base, ...patch }))
 }
 
+/** Copy a single hint key from src to dst when defined (preserves each key's narrow type). */
+function copyHintKey<K extends keyof ContextHint>(
+  dst: ContextHint,
+  src: ContextHint,
+  key: K,
+): void {
+  const value = src[key]
+  if (value !== undefined) dst[key] = value
+}
+
 /**
  * Carry re-capture watermark fields from a prior hint into a freshly built SessionStart
  * hint. SessionStart re-fires on resume/compact and rewrites the hint wholesale; without
@@ -458,14 +469,7 @@ export function upsertContextHint(
 export function mergePriorWatermarks(hint: ContextHint, prior: ContextHint | null): ContextHint {
   if (!prior) return hint
   const merged: ContextHint = { ...hint }
-  if (prior.captured_skill_dir !== undefined) merged.captured_skill_dir = prior.captured_skill_dir
-  if (prior.captured_skill_count !== undefined)
-    merged.captured_skill_count = prior.captured_skill_count
-  if (prior.captured_skill_title !== undefined)
-    merged.captured_skill_title = prior.captured_skill_title
-  if (prior.captured_sp_dir !== undefined) merged.captured_sp_dir = prior.captured_sp_dir
-  if (prior.captured_sp_count !== undefined) merged.captured_sp_count = prior.captured_sp_count
-  if (prior.captured_sp_title !== undefined) merged.captured_sp_title = prior.captured_sp_title
+  for (const key of WATERMARK_KEYS) copyHintKey(merged, prior, key)
   return merged
 }
 

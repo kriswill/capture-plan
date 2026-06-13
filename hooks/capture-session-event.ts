@@ -17,6 +17,7 @@ import {
   loadConfig,
   readAndClearEvents,
   readContextHintFull,
+  upsertContextHint,
   upsertSessionDoc,
 } from "./shared.ts"
 
@@ -75,7 +76,15 @@ async function main(): Promise<void> {
         })
         if (sessionDocPath) {
           hint.session_doc_path = sessionDocPath
-          writeFileSync(contextHintPath(sessionId), JSON.stringify(hint))
+          // Merge instead of wholesale rewrite: createSessionDoc spends seconds in the
+          // Obsidian CLI, and a Stop hook may have written re-capture watermarks into
+          // the hint in that window — rewriting the stale in-memory copy would erase
+          // them and resurrect the duplicate-directory bug.
+          upsertContextHint(
+            sessionId,
+            { session_doc_path: sessionDocPath },
+            { session_enabled: enabled, source: "lazy-init" },
+          )
         }
         debugLog(`SessionEvent: lazy-init created session doc for ${sessionId}\n`, DEBUG_LOG)
       }

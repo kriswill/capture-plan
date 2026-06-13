@@ -236,9 +236,13 @@ export type RecaptureDecision = { action: "skip" } | { action: "capture"; reuse?
  * superpowers writes) against the watermark recorded in the context hint when the last
  * capture was consumed. A count of 0 always skips, subsuming the empty-invocations exit.
  *
- * Known limitation: if compaction starts a new transcript file, detected counts can drop
- * below the watermark and post-compact activity below it is skipped (accepted — rare, and
- * bounded to one session).
+ * Known limitations (accepted — rare, and bounded to one extra directory per event):
+ * - If compaction starts a new transcript file, detected counts can drop below the
+ *   watermark and post-compact activity below it is skipped.
+ * - Resume/fork issues a NEW session id with the cumulative transcript; the watermark
+ *   lives in a hint file keyed by the old id, so the first Stop of the resumed session
+ *   re-captures everything into a fresh directory. The SessionStart payload carries no
+ *   predecessor id, so the watermark cannot be carried across.
  */
 export function decideRecapture(
   source: "skill" | "superpowers",
@@ -283,7 +287,12 @@ export function buildCaptureWatermark(
   } else if (spWriteCount > 0) {
     patch.captured_sp_count = spWriteCount
   }
-  if (skillCount > 0) patch.captured_skill_count = skillCount
+  if (skillCount > 0) {
+    patch.captured_skill_count = skillCount
+    // These invocations were captured as per-skill notes in THIS capture's dir; a
+    // follow-up skill-only capture must start after them, not re-emit them.
+    patch.captured_skill_offset = skillCount
+  }
   return patch
 }
 

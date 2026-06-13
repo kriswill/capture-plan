@@ -121,6 +121,10 @@ export interface ContextHint {
   captured_skill_count?: number
   /** Original activity note title — reused on re-capture so journal callout grouping survives Haiku title drift. */
   captured_skill_title?: string
+  /** Index into the filtered invocation list where the current activity capture starts.
+   *  Set when a mixed-session capture consumes invocations into the plan dir, so a
+   *  follow-up skill-only capture contains only the invocations after it. */
+  captured_skill_offset?: number
   /** Vault-relative directory of the superpowers plan capture already consumed this session. */
   captured_sp_dir?: string
   /** Count of superpowers spec/plan writes included in the last consumed capture. */
@@ -129,19 +133,24 @@ export interface ContextHint {
   captured_sp_title?: string
 }
 
+/** ContextHint keys forming the re-capture watermark. Single source of truth:
+ *  mergePriorWatermarks carries exactly these across SessionStart rewrites, and
+ *  ContextHintPatch derives its patchable watermark keys from this list. */
+export const WATERMARK_KEYS = [
+  "captured_skill_dir",
+  "captured_skill_count",
+  "captured_skill_title",
+  "captured_skill_offset",
+  "captured_sp_dir",
+  "captured_sp_count",
+  "captured_sp_title",
+] as const satisfies readonly (keyof ContextHint)[]
+
 /** Keys of ContextHint that downstream hooks may patch after SessionStart. */
 export type ContextHintPatch = Partial<
   Pick<
     ContextHint,
-    | "plan_dir"
-    | "session_doc_path"
-    | "bases_synced"
-    | "captured_skill_dir"
-    | "captured_skill_count"
-    | "captured_skill_title"
-    | "captured_sp_dir"
-    | "captured_sp_count"
-    | "captured_sp_title"
+    "plan_dir" | "session_doc_path" | "bases_synced" | (typeof WATERMARK_KEYS)[number]
   >
 >
 

@@ -127,13 +127,14 @@ describe("buildCaptureWatermark", () => {
     })
   })
 
-  it("superpowers source records the sp triplet plus a count-only skill guard", () => {
+  it("superpowers source records the sp triplet plus a count-only skill guard with offset", () => {
     const state = makeState({ source: "superpowers", plan_dir: SP_DIR, plan_title: "SP Plan" })
     expect(buildCaptureWatermark(state, 2, 2)).toEqual({
       captured_sp_dir: SP_DIR,
       captured_sp_count: 2,
       captured_sp_title: "SP Plan",
       captured_skill_count: 2,
+      captured_skill_offset: 2,
     })
   })
 
@@ -174,10 +175,10 @@ describe("buildCaptureWatermark", () => {
     expect(buildCaptureWatermark(state, 0, 0)).toEqual({})
   })
 
-  it("plan-mode source with skills records a count-only skill guard (no dir — never reuse the plan dir)", () => {
+  it("plan-mode source with skills records a count-only skill guard plus offset (no dir — never reuse the plan dir)", () => {
     const state = makeState({ source: undefined })
     const patch = buildCaptureWatermark(state, 0, 2)
-    expect(patch).toEqual({ captured_skill_count: 2 })
+    expect(patch).toEqual({ captured_skill_count: 2, captured_skill_offset: 2 })
     expect(patch.captured_skill_dir).toBeUndefined()
     expect(patch.captured_skill_title).toBeUndefined()
   })
@@ -203,6 +204,14 @@ describe("buildCaptureWatermark", () => {
     expect(buildCaptureWatermark(state, 2, 3)).toEqual({
       captured_sp_count: 2,
       captured_skill_count: 3,
+      captured_skill_offset: 3,
     })
+  })
+
+  it("skill source never sets the offset — the merge preserves the dir's original offset", () => {
+    // A skill capture's dir covers invocations from its original offset onward; the
+    // consume patch must not include the key, so upsertContextHint's merge keeps it.
+    const state = makeState({ source: "skill" })
+    expect("captured_skill_offset" in buildCaptureWatermark(state, 0, 5)).toBe(false)
   })
 })

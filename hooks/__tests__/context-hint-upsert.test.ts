@@ -132,12 +132,14 @@ describe("mergePriorWatermarks", () => {
       captured_skill_dir: SKILL_DIR,
       captured_skill_count: 2,
       captured_skill_title: "Orig Title",
+      captured_skill_offset: 2,
       captured_sp_count: 1,
     }
     const merged = mergePriorWatermarks(fresh, prior)
     expect(merged.captured_skill_dir).toBe(SKILL_DIR)
     expect(merged.captured_skill_count).toBe(2)
     expect(merged.captured_skill_title).toBe("Orig Title")
+    expect(merged.captured_skill_offset).toBe(2)
     expect(merged.captured_sp_count).toBe(1)
     // fresh (non-watermark) fields win over prior
     expect(merged.source).toBe("resume")
