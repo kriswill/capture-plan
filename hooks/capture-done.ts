@@ -701,8 +701,11 @@ async function main(): Promise<void> {
       }
       // Superpowers: still capture the plan note even without execution
       // (state was already created with vault note in buildSuperpowersState).
-      // skillCount 0: no per-skill notes were written, so the skill guard stays open.
-      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, spWriteCount, 0))
+      // Both counts 0: the summary hasn't been written yet, so the guard must stay
+      // open — a later Stop with execution re-captures into the same dir (via the
+      // recorded dir+title) and writes the summary. Recording the full spWriteCount
+      // here would skip that Stop and silently lose the execution summary.
+      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
       flushEvents({ message: lastMessage })
       process.exit(0)
     }
@@ -830,9 +833,11 @@ ${fileList}
         `Failed to create summary note: stdout=${createResult.stdout} stderr=${createResult.stderr}\n`,
         DEBUG_LOG,
       )
-      // skillCount 0 keeps dir+title but leaves the count guard open: the next Stop
+      // Both counts 0 keep dir+title but leave the count guard open: the next Stop
       // re-captures into the same directory and retries the summary (self-healing).
-      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, spWriteCount, 0))
+      // This must hold for superpowers states too — recording spWriteCount here
+      // would permanently close the guard and the summary would never be retried.
+      consumeVaultState(state.plan_dir, buildCaptureWatermark(state, 0, 0))
       flushEvents({ message: lastMessage })
       process.exit(0)
     }

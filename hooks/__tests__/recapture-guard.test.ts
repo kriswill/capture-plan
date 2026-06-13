@@ -149,6 +149,26 @@ describe("buildCaptureWatermark", () => {
     expect(patch.captured_skill_count).toBeUndefined()
   })
 
+  it("superpowers consume-without-summary keeps dir+title with count 0 (guard stays open)", () => {
+    // Contract for the no-execution and summary-create-failure consume sites:
+    // recording the full spWriteCount there would skip every later Stop and
+    // silently lose the execution summary.
+    const state = makeState({ source: "superpowers", plan_dir: SP_DIR, plan_title: "SP Plan" })
+    const patch = buildCaptureWatermark(state, 0, 0)
+    expect(patch).toEqual({
+      captured_sp_dir: SP_DIR,
+      captured_sp_count: 0,
+      captured_sp_title: "SP Plan",
+    })
+
+    // A later Stop that re-detects the same writes must re-capture into the same dir
+    const hint = makeHint(patch)
+    expect(decideRecapture("superpowers", 1, hint)).toEqual({
+      action: "capture",
+      reuse: { planDir: SP_DIR, title: "SP Plan" },
+    })
+  })
+
   it("plan-mode source records nothing without skills", () => {
     const state = makeState({ source: undefined })
     expect(buildCaptureWatermark(state, 0, 0)).toEqual({})
